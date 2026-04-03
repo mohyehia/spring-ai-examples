@@ -1,2 +1,13 @@
 ### GET request to example server
 GET http://localhost:8083
+
+### GET using Prompt
+GET http://localhost:8083/prompts
+
+
+### GET popular youtubers Prompt
+GET http://localhost:8083/prompts/popular?genre=programming
+
+
+### GET info using instructions Prompt
+GET http://localhost:8083/prompts/instruct?userInput=Tell me a Joke about Computers?

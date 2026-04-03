@@ -7,3 +7,8 @@ spring:
         model: "llama3.1:8b"
 server:
   port: 8083
+
+logging:
+  level:
+    root: info
+    org.springframework.ai: debug
