@@ -96,10 +96,18 @@ spring-ai-examples/
     └── src/
         ├── main/
         │   ├── java/com/moh/yehia/ollama/
-        │   │   ├── ChatController.java              # REST endpoint
+        │   │   ├── ChatController.java              # Simple prompt endpoint
+        │   │   ├── PromptController.java            # Advanced prompting patterns
+        │   │   ├── OutputParserController.java      # Output parsing & conversion
+        │   │   ├── SongDTO.java                     # Data transfer object
         │   │   └── SpringAiOllamaApplication.java   # Entry point
         │   └── resources/
-        │       └── application.yaml                 # Configuration
+        │       ├── application.yaml                 # Configuration
+        │       └── prompts/                         # StringTemplate prompt files
+        │           ├── youtube-prompt.st            # Parameterized template
+        │           ├── system-prompt.st             # System message template
+        │           ├── song-text-prompt.st          # Song list (text format)
+        │           └── song-structured-prompt.st    # Song list (structured format)
         └── test/
             └── java/com/moh/yehia/ollama/
                 └── SpringAiOllamaApplicationTests.java  # Context load test
@@ -113,6 +121,8 @@ Spring AI is a Spring Framework project that provides a **unified abstraction la
 
 - **Abstract away provider differences:** Switch between OpenAI, Azure, Ollama, etc., with minimal code changes
 - **Use a consistent API:** ChatClient provides a fluent API for all LLM interactions
+- **Convert unstructured to structured data:** Output converters transform LLM text into Java objects
+- **Build enterprise AI applications:** Prompt templates, message composition, and response parsing
 - **Focus on business logic:** Not on low-level HTTP or API details
 
 ### Architecture
@@ -195,6 +205,46 @@ return response.getResults().getFirst().getOutput().getText();
 - Support for variable interpolation in templates
 - Ability to define AI behavior with system messages
 
+### Output Parsing & Data Conversion
+
+One of Spring AI's most powerful features is **output parsing** - converting unstructured LLM text responses into structured Java objects. This project demonstrates three approaches:
+
+**Pattern 1: ListOutputConverter (Unstructured → List)**
+```java
+ListOutputConverter converter = new ListOutputConverter();
+Prompt prompt = new PromptTemplate(resource)
+    .create(Map.of("artist", "Adele", "format", converter.getFormat()));
+List<String> songs = converter.convert(
+    chatClient.prompt(prompt).call().content()
+);
+// Result: ["Song 1", "Song 2", ...]
+```
+
+**Pattern 2: MapOutputConverter (Unstructured → Map)**
+```java
+MapOutputConverter converter = new MapOutputConverter();
+Prompt prompt = new PromptTemplate(resource)
+    .create(Map.of("artist", "Adele", "format", converter.getFormat()));
+Map<String, Object> songs = converter.convert(
+    chatClient.prompt(prompt).call().content()
+);
+// Result: {"1": "Song description", "2": "Song description", ...}
+```
+
+**Pattern 3: BeanOutputConverter (Unstructured → POJO)**
+```java
+BeanOutputConverter<List<SongDTO>> converter = 
+    new BeanOutputConverter<>(new ParameterizedTypeReference<>() {});
+Prompt prompt = new PromptTemplate(resource)
+    .create(Map.of("artist", "Adele", "format", converter.getFormat()));
+List<SongDTO> songs = converter.convert(
+    chatClient.prompt(prompt).call().content()
+);
+// Result: [SongDTO(artist="Adele", title="...", description="..."), ...]
+```
+
+**Key Insight:** The converter's `getFormat()` method injects formatting instructions into the prompt, guiding the LLM to produce output parseable by the converter. This makes structured data extraction reliable and type-safe.
+
 ## ⚙️ Configuration
 
 ### application.yaml
@@ -266,6 +316,8 @@ To use a different Ollama model:
 Available models can be listed via: `ollama list`
 
 ## 📡 API Endpoints
+
+This section documents all REST endpoints available in the application, organized by controller.
 
 ### ChatController Endpoints
 
@@ -378,14 +430,228 @@ If you don't know the answer, just say "I don't know".
 When you are asked about anything else, Tell them that this is not your Job.
 ```
 
+### OutputParserController Endpoints
+
+The `OutputParserController` (`/parser` base path) demonstrates **Spring AI's output parsing and conversion** capabilities. This is crucial for structured data extraction from LLM responses.
+
+#### GET /parser
+
+Returns a list of top 5 songs for an artist as plain text using the song-text-prompt template.
+
+**Request:**
+```bash
+curl "http://localhost:8083/parser?artist=Adele"
+```
+
+**Response:**
+```
+Here are the top 5 songs by Adele:
+1. Hello - A powerful ballad about reconnection
+2. Someone Like You - An emotional piano-driven song
+3. Skyfall - A dramatic song for the James Bond soundtrack
+4. Easy On Me - A piano ballad about moving forward
+5. Rolling In The Deep - An upbeat breakup anthem
+```
+
+**Key Features:**
+- **Prompt Template:** Uses `song-text-prompt.st` with `{artist}` parameter
+- **Plain Text Response:** Returns raw text output from the model
+- **Default Parameter:** Uses "Adele" if no artist is specified
+
+**Implementation:**
+```java
+Prompt prompt = new PromptTemplate(textPrompt)
+    .create(Map.of("artist", artist));
+ChatResponse chatResponse = chatClient.prompt(prompt)
+    .call()
+    .chatResponse();
+return chatResponse.getResults()
+    .getFirst()
+    .getOutput()
+    .getText();
+```
+
+#### GET /parser/list
+
+Returns a list of top 5 songs for an artist as a **List<String>** using ListOutputConverter.
+
+**Request:**
+```bash
+curl "http://localhost:8083/parser/list?artist=Taylor%20Swift"
+```
+
+**Response:**
+```json
+[
+  "1. Anti-Hero - A introspective pop song",
+  "2. Blank Space - An upbeat pop anthem",
+  "3. Love Story - A romantic country-pop crossover",
+  "4. You Belong With Me - A catchy pop-country track",
+  "5. Shake It Off - An energetic pop song"
+]
+```
+
+**Key Features:**
+- **Output Converter:** `ListOutputConverter` parses LLM text output into a Java List
+- **Format Instructions:** Converter automatically injects format requirements into prompt
+- **Structured Response:** JSON array format makes it easy for frontend consumption
+
+**Implementation:**
+```java
+ListOutputConverter listOutputConverter = new ListOutputConverter();
+Prompt prompt = new PromptTemplate(structuredPrompt)
+    .create(Map.of("artist", artist, "format", listOutputConverter.getFormat()));
+String content = chatClient.prompt(prompt)
+    .call()
+    .content();
+return listOutputConverter.convert(content);
+```
+
+#### GET /parser/map
+
+Returns song data as a **Map<String, Object>** using MapOutputConverter.
+
+**Request:**
+```bash
+curl "http://localhost:8083/parser/map?artist=The%20Beatles"
+```
+
+**Response:**
+```json
+{
+  "1": "Let It Be - A philosophical rock ballad",
+  "2": "Hey Jude - An epic anthemic pop-rock song",
+  "3": "Yesterday - A melancholic string-backed ballad",
+  "4": "A Day In The Life - An experimental rock masterpiece",
+  "5": "Come Together - A funk-driven rock song"
+}
+```
+
+**Key Features:**
+- **Output Converter:** `MapOutputConverter` converts LLM output to key-value pairs
+- **Flexible Structure:** Map allows arbitrary keys and values
+- **Queryable Format:** Easy to access specific entries programmatically
+
+**Implementation:**
+```java
+MapOutputConverter mapOutputConverter = new MapOutputConverter();
+Prompt prompt = new PromptTemplate(structuredPrompt)
+    .create(Map.of("artist", artist, "format", mapOutputConverter.getFormat()));
+String content = chatClient.prompt(prompt)
+    .call()
+    .content();
+return mapOutputConverter.convert(content);
+```
+
+#### GET /parser/dto
+
+Returns song data as a **List<SongDTO>** using BeanOutputConverter for strongly-typed objects.
+
+**Request:**
+```bash
+curl "http://localhost:8083/parser/dto?artist=Billie%20Eilish"
+```
+
+**Response:**
+```json
+[
+  {
+    "artist": "Billie Eilish",
+    "title": "Bad Guy",
+    "description": "A dark, minimalist pop track with a heavy baseline"
+  },
+  {
+    "artist": "Billie Eilish",
+    "title": "When We All Fall Asleep",
+    "description": "A contemplative ballad about collective vulnerability"
+  },
+  {
+    "artist": "Billie Eilish",
+    "title": "Ocean Eyes",
+    "description": "A melodic indie-pop song about admiration"
+  },
+  {
+    "artist": "Billie Eilish",
+    "title": "Therefore I Am",
+    "description": "A confident pop anthem about self-awareness"
+  },
+  {
+    "artist": "Billie Eilish",
+    "title": "Happier Than Ever",
+    "description": "An emotional rock-pop ballad about heartbreak"
+  }
+]
+```
+
+**Key Features:**
+- **Strongly-Typed Objects:** `BeanOutputConverter<List<SongDTO>>` converts to Java POJOs
+- **Type Safety:** Compiler-checked field names and types
+- **DTO Usage:** `SongDTO` is a Java record with fields: `artist`, `title`, `description`
+- **Best for Production:** Recommended pattern for API responses
+
+**SongDTO Record Definition:**
+```java
+public record SongDTO(String artist, String title, String description) {
+}
+```
+
+**Implementation:**
+```java
+BeanOutputConverter<List<SongDTO>> beanOutputConverter = 
+    new BeanOutputConverter<>(new ParameterizedTypeReference<>() {});
+
+Prompt prompt = new PromptTemplate(structuredPrompt)
+    .create(Map.of("artist", artist, "format", beanOutputConverter.getFormat()));
+String content = chatClient.prompt(prompt)
+    .call()
+    .content();
+return beanOutputConverter.convert(content);
+```
+
+### Output Converters Overview
+
+Spring AI provides multiple converter patterns for different use cases:
+
+| Converter | Output Type | Use Case | Type Safety |
+|-----------|-------------|----------|-------------|
+| `ListOutputConverter` | `List<String>` | Lists of items | ⭐⭐ |
+| `MapOutputConverter` | `Map<String, Object>` | Key-value pairs | ⭐⭐ |
+| `BeanOutputConverter<T>` | `T` (Generic type) | Strongly-typed objects | ⭐⭐⭐ |
+
+**Converter Pattern:**
+1. Create converter instance with desired output type
+2. Call `converter.getFormat()` to get format instructions
+3. Include format instructions in prompt template
+4. Parse LLM response with `converter.convert(content)`
+
+**Example: Adding a New Converter**
+```java
+// Define a converter for a custom type
+BeanOutputConverter<MyCustomClass> converter = 
+    new BeanOutputConverter<>(new ParameterizedTypeReference<>() {});
+
+// Include format in prompt
+Prompt prompt = new PromptTemplate(resource)
+    .create(Map.of("format", converter.getFormat()));
+
+// Parse response
+MyCustomClass result = converter.convert(
+    chatClient.prompt(prompt).call().content()
+);
+```
+
 ### Future Endpoints
 
-This is the foundation for adding:
-- **POST /chat** - Multi-turn conversation
-- **POST /summarize** - Document summarization
-- **POST /code-review** - Code analysis
-- Streaming responses with Server-Sent Events (SSE)
-- Function calling / Tool invocation
+Beyond the current implementations, this codebase is ready to extend with:
+
+- **POST /chat** - Multi-turn conversation state management
+- **POST /summarize** - Document summarization with configurable length
+- **POST /code-review** - Code analysis with detailed feedback
+- **GET /stream** - Streaming responses with Server-Sent Events (SSE)
+- **POST /function-call** - Function calling / Tool invocation patterns
+- **POST /image-generation** - Image synthesis endpoints (with compatible providers)
+- **POST /embeddings** - Vector embeddings for semantic search
+- **WebSocket /chat-ws** - Real-time bidirectional chat
 
 ## 🛠️ Development
 

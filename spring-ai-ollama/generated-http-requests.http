@@ -11,3 +11,16 @@ GET http://localhost:8083/prompts/popular?genre=programming
 
 ### GET info using instructions Prompt
 GET http://localhost:8083/prompts/instruct?userInput=Tell me a Joke about Computers?
+
+
+### GET songs from parser Prompt
+GET http://localhost:8083/parser
+
+### GET List of songs from parser Prompt
+GET http://localhost:8083/parser/list
+
+### GET Map of songDTO from parser Prompt
+GET http://localhost:8083/parser/map
+
+### GET List of songDTO from parser Prompt
+GET http://localhost:8083/parser/dto
