@@ -24,3 +24,12 @@ GET http://localhost:8083/parser/map
 
 ### GET List of songDTO from parser Prompt
 GET http://localhost:8083/parser/dto
+
+### GET List of songDTO using entity method
+GET http://localhost:8083/parser/entity
+
+### Get the complete response entity
+GET http://localhost:8083/parser/response-entity
+
+### Get response as stream
+GET http://localhost:8083/parser/stream

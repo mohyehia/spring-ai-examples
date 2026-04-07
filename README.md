@@ -26,7 +26,7 @@ A minimalist Spring Boot REST service that showcases Spring AI's ChatClient abst
 - **Language:** Java 21
 - **Framework:** Spring Boot 4.0.5
 - **AI Library:** Spring AI 2.0.0-M4
-- **LLM Provider:** Ollama with llama3.1:8b model
+- **LLM Provider:** Ollama with llama3.2:3b model (configurable)
 - **Port:** 8083
 
 ## 🔧 Prerequisites
@@ -40,6 +40,10 @@ A minimalist Spring Boot REST service that showcases Spring AI's ChatClient abst
 1. **Install Ollama** from [ollama.ai](https://ollama.ai/)
 2. **Start Ollama service** (runs on `localhost:11434` by default)
 3. **Pull the required model:**
+   ```bash
+   ollama pull llama3.2:3b
+   ```
+   Or for better quality (requires more resources):
    ```bash
    ollama pull llama3.1:8b
    ```
@@ -256,9 +260,13 @@ spring:
   ai:
     ollama:
       chat:
-        model: "llama3.1:8b"        # Model to use (must be pulled in Ollama)
+        model: "llama3.2:3b"        # Model to use (must be pulled in Ollama)
 server:
   port: 8083                        # Spring Boot server port
+logging:
+  level:
+    root: info                      # Logging level
+    org.springframework.ai: debug    # Enable debug logging for Spring AI
 ```
 
 ### Customization Options
@@ -608,25 +616,277 @@ String content = chatClient.prompt(prompt)
 return beanOutputConverter.convert(content);
 ```
 
-### Output Converters Overview
+#### GET /parser/entity
 
-Spring AI provides multiple converter patterns for different use cases:
+Returns song data as a **List<SongDTO>** using the ChatClient's native `.entity()` method for direct type conversion.
 
-| Converter | Output Type | Use Case | Type Safety |
-|-----------|-------------|----------|-------------|
-| `ListOutputConverter` | `List<String>` | Lists of items | ⭐⭐ |
-| `MapOutputConverter` | `Map<String, Object>` | Key-value pairs | ⭐⭐ |
-| `BeanOutputConverter<T>` | `T` (Generic type) | Strongly-typed objects | ⭐⭐⭐ |
+**Request:**
+```bash
+curl "http://localhost:8083/parser/entity?artist=Adele"
+```
 
-**Converter Pattern:**
-1. Create converter instance with desired output type
-2. Call `converter.getFormat()` to get format instructions
-3. Include format instructions in prompt template
-4. Parse LLM response with `converter.convert(content)`
+**Response:**
+```json
+[
+  {
+    "artist": "Adele",
+    "title": "Hello",
+    "description": "A powerful ballad about reconnection"
+  },
+  {
+    "artist": "Adele",
+    "title": "Someone Like You",
+    "description": "An emotional piano-driven song"
+  },
+  {
+    "artist": "Adele",
+    "title": "Skyfall",
+    "description": "A dramatic song for the James Bond soundtrack"
+  },
+  {
+    "artist": "Adele",
+    "title": "Easy On Me",
+    "description": "A piano ballad about moving forward"
+  },
+  {
+    "artist": "Adele",
+    "title": "Rolling In The Deep",
+    "description": "An upbeat breakup anthem"
+  }
+]
+```
 
-**Example: Adding a New Converter**
+**Key Features:**
+- **Native ChatClient Method:** Uses `.entity()` for direct type conversion
+- **Simplified Pattern:** No need for manual BeanOutputConverter instantiation
+- **Type Reference:** Still requires `ParameterizedTypeReference<>()` for generic types
+- **Cleaner Code:** More idiomatic Spring AI pattern
+
+**Implementation:**
 ```java
-// Define a converter for a custom type
+public List<SongDTO> getNativeSongs(@RequestParam(defaultValue = "Adele") String artist) {
+    return chatClient.prompt(new PromptTemplate(textPrompt)
+            .create(Map.of("artist", artist)))
+        .call()
+        .entity(new ParameterizedTypeReference<>() {});
+}
+```
+
+#### GET /parser/response-entity
+
+Returns both the **ChatResponse** metadata and parsed song data as **List<SongDTO>** using the ResponseEntity wrapper.
+
+**Request:**
+```bash
+curl "http://localhost:8083/parser/response-entity?artist=Taylor%20Swift"
+```
+
+**Response:**
+```json
+{
+  "chatResponse": {
+    "metadata": {
+      "model": "llama3.2:3b",
+      "tokens": {
+        "inputTokens": 45,
+        "outputTokens": 238
+      }
+    },
+    "results": [...]
+  },
+  "entity": [
+    {
+      "artist": "Taylor Swift",
+      "title": "Anti-Hero",
+      "description": "A introspective pop song"
+    },
+    {
+      "artist": "Taylor Swift",
+      "title": "Blank Space",
+      "description": "An upbeat pop anthem"
+    },
+    {
+      "artist": "Taylor Swift",
+      "title": "Love Story",
+      "description": "A romantic country-pop crossover"
+    },
+    {
+      "artist": "Taylor Swift",
+      "title": "You Belong With Me",
+      "description": "A catchy pop-country track"
+    },
+    {
+      "artist": "Taylor Swift",
+      "title": "Shake It Off",
+      "description": "An energetic pop song"
+    }
+  ]
+}
+```
+
+**Key Features:**
+- **Dual Response:** Returns both response metadata and parsed entity in one call
+- **Type Reference:** Uses `ResponseEntity<ChatResponse, List<SongDTO>>` wrapper
+- **Metadata Access:** Access token counts, model info, and other metadata alongside data
+- **Advanced Pattern:** Most feature-rich output handling approach
+
+**Implementation:**
+```java
+public ResponseEntity<ChatResponse, List<SongDTO>> getResponseEntitySongs(@RequestParam(defaultValue = "Adele") String artist) {
+    return chatClient.prompt(new PromptTemplate(textPrompt)
+            .create(Map.of("artist", artist)))
+        .call()
+        .responseEntity(new ParameterizedTypeReference<>() {});
+}
+```
+
+#### GET /parser/stream
+
+Returns song data as a **Flux<String>** stream for real-time, non-blocking response streaming.
+
+**Request:**
+```bash
+curl "http://localhost:8083/parser/stream?artist=The%20Beatles"
+```
+
+**Response (Streaming):**
+```
+Here are the top 5 songs by The Beatles:
+1. Let It Be - A philosophical rock ballad
+2. Hey Jude - An epic anthemic pop-rock song
+3. Yesterday - A melancholic string-backed ballad
+4. A Day In The Life - An experimental rock masterpiece
+5. Come Together - A funk-driven rock song
+```
+
+**Key Features:**
+- **Server-Sent Events (SSE) Support:** Real-time streaming responses
+- **Non-Blocking:** Uses Project Reactor's `Flux<String>` for async streaming
+- **Token-by-Token:** LLM output sent as chunks for faster perceived response time
+- **Large Response Handling:** Ideal for long-form content generation
+- **Frontend Integration:** Compatible with JavaScript's EventSource API
+
+**Implementation:**
+```java
+@GetMapping("/stream")
+public Flux<String> getSongsAsStream(@RequestParam(defaultValue = "Adele") String artist) {
+    Prompt prompt = new PromptTemplate(textPrompt)
+        .create(Map.of("artist", artist));
+    return chatClient.prompt(prompt)
+        .stream()
+        .content();
+}
+```
+
+**Client-Side Streaming Example (JavaScript):**
+```javascript
+const eventSource = new EventSource('http://localhost:8083/parser/stream?artist=Adele');
+eventSource.onmessage = (event) => {
+    document.getElementById('response').innerHTML += event.data;
+};
+eventSource.onerror = () => eventSource.close();
+```
+
+### Output Conversion Patterns Overview
+
+Spring AI provides **multiple approaches** for converting unstructured LLM text into structured Java objects:
+
+| Pattern              | Method                          | Output Type                       | Type Safety | Complexity | Best For          |
+|----------------------|---------------------------------|-----------------------------------|-------------|------------|-------------------|
+| **Manual Converter** | `.call().content()` + converter | `T`                               | ⭐⭐⭐         | Medium     | Explicit control  |
+| **Entity Method**    | `.call().entity()`              | `T`                               | ⭐⭐⭐         | Low        | Direct conversion |
+| **Response Entity**  | `.call().responseEntity()`      | `ResponseEntity<ChatResponse, T>` | ⭐⭐⭐         | Medium     | Metadata + data   |
+| **Streaming**        | `.stream().content()`           | `Flux<T>`                         | ⭐⭐⭐         | Medium     | Real-time output  |
+
+#### Pattern Comparison
+
+**1. Manual Converter (Traditional)**
+```java
+// Requires explicit converter instantiation
+ListOutputConverter converter = new ListOutputConverter();
+Prompt prompt = new PromptTemplate(resource)
+    .create(Map.of("format", converter.getFormat()));
+List<String> result = converter.convert(
+    chatClient.prompt(prompt).call().content()
+);
+```
+- ✅ Full control over conversion process
+- ✅ Can use `ListOutputConverter`, `MapOutputConverter`, `BeanOutputConverter`
+- ❌ More boilerplate code
+- **Use Case:** When you need specific converter behavior
+
+**2. Native Entity Method (Recommended)**
+```java
+// Direct conversion without manual converter
+List<SongDTO> result = chatClient.prompt(prompt)
+    .call()
+    .entity(new ParameterizedTypeReference<>() {});
+```
+- ✅ Minimal code, cleaner syntax
+- ✅ Auto-detection of output format
+- ✅ Spring AI handles conversion internally
+- **Use Case:** Most common pattern for strongly-typed responses
+
+**3. Response Entity (Advanced)**
+```java
+// Get both metadata and parsed entity
+ResponseEntity<ChatResponse, List<SongDTO>> result = 
+    chatClient.prompt(prompt).call()
+        .responseEntity(new ParameterizedTypeReference<>() {});
+```
+- ✅ Access token counts and model metadata
+- ✅ Full response information available
+- ✅ Useful for monitoring and debugging
+- **Use Case:** When you need response metadata for logging/analytics
+
+**4. Streaming (Real-time)**
+```java
+// Non-blocking stream of response chunks
+Flux<String> stream = chatClient.prompt(prompt)
+    .stream()
+    .content();
+```
+- ✅ Real-time token-by-token streaming
+- ✅ Better perceived performance
+- ✅ Handles large responses efficiently
+- **Use Case:** Web applications, Server-Sent Events (SSE)
+
+#### Creating Custom Output Types
+
+Define a record or class for structured output:
+
+```java
+// Record-based DTO (recommended for modern Java)
+public record SongDTO(String artist, String title, String description) {}
+
+// Or traditional class
+public class SongDTO {
+    public String artist;
+    public String title;
+    public String description;
+}
+```
+
+Then use with any conversion pattern:
+
+```java
+// Using entity method
+List<SongDTO> songs = chatClient.prompt(prompt)
+    .call()
+    .entity(new ParameterizedTypeReference<List<SongDTO>>() {});
+
+// Using manual converter
+BeanOutputConverter<List<SongDTO>> converter = 
+    new BeanOutputConverter<>(new ParameterizedTypeReference<>() {});
+List<SongDTO> songs = converter.convert(content);
+```
+
+#### Adding New Output Converters
+
+To extend with custom converter types:
+
+```java
+// Example: Custom converter for a specialized type
 BeanOutputConverter<MyCustomClass> converter = 
     new BeanOutputConverter<>(new ParameterizedTypeReference<>() {});
 
@@ -640,20 +900,53 @@ MyCustomClass result = converter.convert(
 );
 ```
 
+### Streaming & Real-Time Features
+
+The `/parser/stream` endpoint demonstrates Spring AI's streaming capabilities:
+
+**Key Benefits:**
+- **Token-by-Token Streaming:** LLM output sent in real-time chunks
+- **Reactive Architecture:** Built on Project Reactor's `Flux<T>` for non-blocking I/O
+- **Server-Sent Events:** Compatible with HTML5 EventSource for browser clients
+- **Reduced Latency:** Users see output faster vs. waiting for complete response
+- **Resource Efficient:** Memory-friendly handling of large response streams
+
+**When to Use Streaming:**
+- Long-form content generation (articles, stories, code)
+- Real-time chat applications
+- Large data processing with incremental results
+- Resource-constrained environments
+
 ### Future Endpoints
 
 Beyond the current implementations, this codebase is ready to extend with:
 
-- **POST /chat** - Multi-turn conversation state management
-- **POST /summarize** - Document summarization with configurable length
-- **POST /code-review** - Code analysis with detailed feedback
-- **GET /stream** - Streaming responses with Server-Sent Events (SSE)
+- **POST /chat** - Multi-turn conversation state management with history
+- **POST /summarize** - Document summarization with configurable length and style
+- **POST /code-review** - Code analysis with detailed feedback and suggestions
 - **POST /function-call** - Function calling / Tool invocation patterns
 - **POST /image-generation** - Image synthesis endpoints (with compatible providers)
-- **POST /embeddings** - Vector embeddings for semantic search
-- **WebSocket /chat-ws** - Real-time bidirectional chat
+- **POST /embeddings** - Vector embeddings for semantic search and similarity
+- **WebSocket /chat-ws** - Real-time bidirectional chat with persistent connections
+- **POST /batch** - Batch processing with streaming progress updates
+- **GET /stream/events** - Event streaming with multiple content types
 
 ## 🛠️ Development
+
+### Recent Updates & New Features
+
+#### V1.1 Release Updates:
+- **Enhanced Output Parsing:** Added three new output conversion methods (`.entity()`, `.responseEntity()`, `.stream()`)
+- **Streaming Support:** Implemented Flux-based streaming for real-time response handling via `/parser/stream`
+- **Response Metadata:** New `/parser/response-entity` endpoint provides access to token counts and model metadata
+- **Native Type Conversion:** Simplified pattern using `.entity()` method for direct type conversion
+- **Model Optimization:** Updated to `llama3.2:3b` (faster, lighter weight alternative to `llama3.1:8b`)
+- **Improved Documentation:** Comprehensive endpoint documentation with pattern comparisons
+
+#### New Endpoints Added:
+1. **GET /parser/entity** - Native SpringAI entity conversion without manual converters
+2. **GET /parser/response-entity** - Dual response with metadata and parsed data
+3. **GET /parser/stream** - Real-time token streaming for large responses
 
 ### Build Commands
 
@@ -759,14 +1052,40 @@ logging:
 - Use a smaller model: `ollama pull mistral` (4B parameters)
 - Reduce concurrent requests
 
-### Issue: Tests fail with "contextLoads" error
+### Issue: Streaming endpoint returns no data or incomplete chunks
 
-**Symptom:** `SpringAiOllamaApplicationTests` fails
+**Symptom:** `/parser/stream` returns empty or cuts off mid-response
 
 **Solution:**
-- Ensure Ollama is running before running tests
-- Spring context needs to successfully initialize ChatClient bean
-- Check logs for detailed error messages
+1. Ensure Spring Boot is configured for streaming: 
+   ```yaml
+   spring.mvc.async.request-timeout: 30000
+   ```
+2. Check that Ollama model supports streaming (llama3.2:3b and llama3.1:8b both support it)
+3. Test with curl using `-N` flag to disable buffering:
+   ```bash
+   curl -N http://localhost:8083/parser/stream?artist=Adele
+   ```
+4. Verify browser client is using EventSource API correctly
+5. Check Ollama logs for streaming errors
+
+### Issue: Entity conversion fails with "Cannot deserialize"
+
+**Symptom:** `/parser/entity` or `/parser/response-entity` throws deserialization error
+
+**Solution:**
+1. Ensure `SongDTO` fields match the JSON structure returned by LLM
+2. Use `@JsonProperty` annotation if field names differ:
+   ```java
+   public record SongDTO(
+       @JsonProperty("artist") String artist,
+       @JsonProperty("title") String title,
+       @JsonProperty("description") String description
+   ) {}
+   ```
+3. Add jackson dependency if missing: `spring-boot-starter-json`
+4. Check LLM response format matches expected JSON structure
+5. Use `/parser` endpoint first to see actual LLM output for debugging
 
 ## 📚 Learning Resources
 
@@ -785,13 +1104,27 @@ logging:
 
 ## 📝 Version Information
 
-| Component   | Version  | Status                  |
-|-------------|----------|-------------------------|
-| Spring Boot | 4.0.5    | Stable                  |
-| Spring AI   | 2.0.0-M4 | Milestone (pre-release) |
-| Java        | 21       | Current LTS             |
-| Ollama      | Latest   | Self-managed            |
-| llama3.1:8b | Latest   | Configurable            |
+| Component   | Version          | Status                  | Notes                          |
+|-------------|------------------|-------------------------|--------------------------------|
+| Spring Boot | 4.0.5            | Stable                  | Java 21 required               |
+| Spring AI   | 2.0.0-M4         | Milestone (pre-release) | API subject to change          |
+| Java        | 21               | Current LTS             | Min 21, recommended 21+        |
+| Ollama      | Latest           | Self-managed            | Tested with llama3.2:3b        |
+| llama3.2    | 3b (default)     | Configurable            | Lightweight, fast inference    |
+| llama3.1    | 8b (optional)    | Alternative             | Better quality, higher compute |
+
+### Release Notes - V1.1
+
+**New Features:**
+- ✨ **Native Entity Conversion** - Direct type conversion via `.entity()` method
+- ✨ **Response Metadata Access** - Get token counts via `.responseEntity()`
+- ✨ **Streaming Responses** - Real-time streaming via Flux with `/parser/stream`
+- ✨ **Pattern Documentation** - Comprehensive comparison of 4 output conversion approaches
+- ⚡ **Model Optimization** - Switched to llama3.2:3b for better performance
+
+**Breaking Changes:** None - all previous endpoints maintained compatibility
+
+**Deprecated:** None
 
 ⚠️ **Note:** Spring AI 2.0.0-M4 is a milestone release. APIs may change in future versions. Refer to official Spring AI documentation for updates.
 

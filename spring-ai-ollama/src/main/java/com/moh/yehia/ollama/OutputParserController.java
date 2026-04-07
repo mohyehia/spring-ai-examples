@@ -1,6 +1,7 @@
 package com.moh.yehia.ollama;
 
 import org.springframework.ai.chat.client.ChatClient;
+import org.springframework.ai.chat.client.ResponseEntity;
 import org.springframework.ai.chat.model.ChatResponse;
 import org.springframework.ai.chat.prompt.Prompt;
 import org.springframework.ai.chat.prompt.PromptTemplate;
@@ -14,6 +15,7 @@ import org.springframework.web.bind.annotation.GetMapping;
 import org.springframework.web.bind.annotation.RequestMapping;
 import org.springframework.web.bind.annotation.RequestParam;
 import org.springframework.web.bind.annotation.RestController;
+import reactor.core.publisher.Flux;
 
 import java.util.List;
 import java.util.Map;
@@ -84,5 +86,32 @@ public class OutputParserController {
                 .content();
         assert content != null;
         return beanOutputConverter.convert(content);
+    }
+
+    @GetMapping("/entity")
+    public List<SongDTO> getNativeSongs(@RequestParam(defaultValue = "Adele") String artist) {
+        return chatClient.prompt(new PromptTemplate(textPrompt)
+                        .create(Map.of("artist", artist)))
+                .call()
+                .entity(new ParameterizedTypeReference<>() {
+                });
+    }
+
+    @GetMapping("/response-entity")
+    public ResponseEntity<ChatResponse, List<SongDTO>> getResponseEntitySongs(@RequestParam(defaultValue = "Adele") String artist) {
+        return chatClient.prompt(new PromptTemplate(textPrompt)
+                        .create(Map.of("artist", artist)))
+                .call()
+                .responseEntity(new ParameterizedTypeReference<>() {
+                });
+    }
+
+    @GetMapping("/stream")
+    public Flux<String> getSongsAsStream(@RequestParam(defaultValue = "Adele") String artist) {
+        Prompt prompt = new PromptTemplate(textPrompt)
+                .create(Map.of("artist", artist));
+        return chatClient.prompt(prompt)
+                .stream()
+                .content();
     }
 }
