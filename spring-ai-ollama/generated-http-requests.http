@@ -33,3 +33,12 @@ GET http://localhost:8083/parser/response-entity
 
 ### Get response as stream
 GET http://localhost:8083/parser/stream
+
+### Test metadata
+GET http://localhost:8083/metadata
+
+### Test metadata using default chatClient
+GET http://localhost:8083/metadata/default
+
+### Test simple logger advisor
+GET http://localhost:8083/metadata/custom-logger-advisor

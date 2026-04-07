@@ -103,6 +103,7 @@ spring-ai-examples/
         │   │   ├── ChatController.java              # Simple prompt endpoint
         │   │   ├── PromptController.java            # Advanced prompting patterns
         │   │   ├── OutputParserController.java      # Output parsing & conversion
+        │   │   ├── MetadataController.java          # Metadata & advisors management
         │   │   ├── SongDTO.java                     # Data transfer object
         │   │   └── SpringAiOllamaApplication.java   # Entry point
         │   └── resources/
@@ -787,6 +788,187 @@ eventSource.onmessage = (event) => {
 eventSource.onerror = () => eventSource.close();
 ```
 
+### MetadataController Endpoints
+
+The `MetadataController` (`/metadata` base path) demonstrates **Spring AI's metadata management** and **advisor patterns** for request/response logging and processing.
+
+#### GET /metadata
+
+Returns a ChatResponse with custom metadata attached to both system and user prompts.
+
+**Request:**
+```bash
+curl http://localhost:8083/metadata
+```
+
+**Response:**
+```json
+{
+  "metadata": {
+    "version": "1.0",
+    "messageId": "550e8400-e29b-41d4-a716-446655440000",
+    "userId": "logged-in-userId"
+  },
+  "results": [
+    {
+      "output": {
+        "text": "Why did the programmer go broke? Because he used up all his cache!"
+      }
+    }
+  ]
+}
+```
+
+**Key Features:**
+- **System Metadata:** Version tracking (`version: "1.0"`)
+- **User Metadata:** Message tracking with UUID, user ID, priority levels
+- **Metadata Propagation:** Metadata attached to prompts carries through to response
+- **Structured Logging:** Custom metadata fields for better traceability
+
+**Implementation:**
+```java
+@GetMapping
+public ChatResponse testMetadata() {
+    ChatResponse chatResponse = chatClient.prompt()
+            .system(promptSystemSpec -> promptSystemSpec.text("You are a helpful assistant")
+                    .metadata("version", "1.0")
+            )
+            .user(promptUserSpec -> promptUserSpec.text("Tell me a joke about programming")
+                    .metadata("messageId", UUID.randomUUID().toString())
+                    .metadata("userId", "logged-in-userId")
+                    .metadata("priority", "high")
+            ).call()
+            .chatResponse();
+    log.info("ChatResponse =>{}", chatResponse);
+    return chatResponse;
+}
+```
+
+**Metadata Use Cases:**
+- Request tracing and correlation IDs
+- User identification and session tracking
+- Priority/importance levels
+- Request source tracking
+- Custom logging fields
+
+#### GET /metadata/default
+
+Returns a ChatResponse using pre-configured default system and user context with metadata through the ChatClient builder.
+
+**Request:**
+```bash
+curl http://localhost:8083/metadata/default
+```
+
+**Response:**
+```json
+{
+  "metadata": {
+    "assistantType": "general",
+    "version": "2.0",
+    "sessionId": "default-session-id"
+  },
+  "results": [
+    {
+      "output": {
+        "text": "Why did the computer go to school? To improve its byte!"
+      }
+    }
+  ]
+}
+```
+
+**Key Features:**
+- **Default System Context:** "You are a helpful assistant" (always included)
+- **Default User Context:** "Default user context" (always included)
+- **Pre-configured Metadata:** Assistant type and version metadata set at builder level
+- **Consistent Behavior:** Same metadata applied to all requests using this client
+- **SimpleLoggerAdvisor:** Built-in logging advisor for request/response tracing
+
+**Implementation:**
+```java
+this.defaultChatClient = builder
+    .defaultSystem(promptSystemSpec -> promptSystemSpec.text("You are a helpful assistant")
+            .metadata("assistantType", "general")
+            .metadata("version", "2.0")
+    ).defaultUser(promptUserSpec -> promptUserSpec.text("Default user context")
+            .metadata("sessionId", "default-session-id")
+    )
+    .build();
+
+// Usage:
+defaultChatClient.prompt("Tell me a joke about computers")
+    .advisors(new SimpleLoggerAdvisor())
+    .call()
+    .chatResponse();
+```
+
+**Default Context Benefits:**
+- Consistent system prompts across all requests
+- Automatic metadata injection
+- Reduced boilerplate in endpoints
+- Centralized configuration
+- Built-in logging through advisors
+
+#### GET /metadata/custom-logger-advisor
+
+Returns a string response using a **custom SimpleLoggerAdvisor** with custom request/response logging logic.
+
+**Request:**
+```bash
+curl http://localhost:8083/metadata/custom-logger-advisor
+```
+
+**Response:**
+```
+Custom response: Why did the AI go to the gym? To work on its neural networks!
+```
+
+**Key Features:**
+- **Custom Request Logging:** Logs entire prompt with custom formatting
+- **Custom Response Logging:** Logs response content with custom formatting
+- **Advisor Pattern:** Intercepts and processes request/response lifecycle
+- **Pluggable Logic:** Custom advisor can implement any logging/processing strategy
+- **Request/Response Hooks:** Two hook points for custom processing
+
+**Implementation:**
+```java
+@GetMapping("/custom-logger-advisor")
+public String testCustomLoggerAdvisor() {
+    SimpleLoggerAdvisor customLoggerAdvisor = new SimpleLoggerAdvisor(
+            request -> {
+                assert request != null;
+                return "Custom request: " + request.prompt();
+            },
+            response -> {
+                assert response != null;
+                return "Custom response: " + response.getResult();
+            },
+            0  // Priority level (0 = highest)
+    );
+    return chatClient.prompt("Tell me a joke about computers")
+            .advisors(customLoggerAdvisor)
+            .call()
+            .content();
+}
+```
+
+**Advisor Pattern Benefits:**
+- **Request Interception:** Process/log requests before sending to LLM
+- **Response Interception:** Process/log responses after receiving from LLM
+- **Cross-Cutting Concerns:** Logging, monitoring, tracing, metrics
+- **Reusable Logic:** Define advisor once, use across multiple requests
+- **Priority-Based:** Multiple advisors can be chained with priority ordering
+
+**Custom Advisor Use Cases:**
+- Request/response auditing
+- Performance monitoring
+- Token counting and cost tracking
+- Security validation (content filtering)
+- Request transformation/enrichment
+- Response post-processing
+- Error handling and retry logic
+
 ### Output Conversion Patterns Overview
 
 Spring AI provides **multiple approaches** for converting unstructured LLM text into structured Java objects:
@@ -935,6 +1117,14 @@ Beyond the current implementations, this codebase is ready to extend with:
 
 ### Recent Updates & New Features
 
+#### V1.2 Release Updates:
+- **Metadata Management:** Added custom metadata attachment to system and user prompts
+- **Request Tracing:** Correlation IDs, user identification, priority levels, and source tracking
+- **Default Context:** Pre-configured default system/user context with automatic metadata injection
+- **Advisor Pattern:** Built-in and custom advisors for request/response logging and processing
+- **Cross-Cutting Concerns:** Framework for logging, monitoring, metrics, auditing, and transformation
+- **Enhanced MetadataController:** Three endpoints demonstrating metadata and advisor patterns
+
 #### V1.1 Release Updates:
 - **Enhanced Output Parsing:** Added three new output conversion methods (`.entity()`, `.responseEntity()`, `.stream()`)
 - **Streaming Support:** Implemented Flux-based streaming for real-time response handling via `/parser/stream`
@@ -944,6 +1134,12 @@ Beyond the current implementations, this codebase is ready to extend with:
 - **Improved Documentation:** Comprehensive endpoint documentation with pattern comparisons
 
 #### New Endpoints Added:
+**V1.2:**
+1. **GET /metadata** - Custom metadata attachment to prompts with tracing capabilities
+2. **GET /metadata/default** - Pre-configured default context and metadata management
+3. **GET /metadata/custom-logger-advisor** - Custom advisor implementation example
+
+**V1.1:**
 1. **GET /parser/entity** - Native SpringAI entity conversion without manual converters
 2. **GET /parser/response-entity** - Dual response with metadata and parsed data
 3. **GET /parser/stream** - Real-time token streaming for large responses
@@ -1113,6 +1309,20 @@ logging:
 | llama3.2    | 3b (default)     | Configurable            | Lightweight, fast inference    |
 | llama3.1    | 8b (optional)    | Alternative             | Better quality, higher compute |
 
+### Release Notes - V1.2
+
+**New Features:**
+- ✨ **Metadata Management** - Custom metadata attachment to system/user prompts via `MetadataController`
+- ✨ **Request/Response Tracing** - Built-in correlation IDs, user tracking, and priority levels
+- ✨ **Default Chat Context** - Pre-configured system and user context with automatic metadata injection
+- ✨ **Advisor Pattern** - SimpleLoggerAdvisor for custom request/response processing and logging
+- ✨ **Custom Advisor Implementation** - Full control over logging/monitoring/transformation logic
+- ✨ **Cross-Cutting Concerns** - Extensible advisor framework for logging, metrics, auditing
+
+**Breaking Changes:** None - all previous endpoints maintained compatibility
+
+**Deprecated:** None
+
 ### Release Notes - V1.1
 
 **New Features:**
@@ -1122,9 +1332,6 @@ logging:
 - ✨ **Pattern Documentation** - Comprehensive comparison of 4 output conversion approaches
 - ⚡ **Model Optimization** - Switched to llama3.2:3b for better performance
 
-**Breaking Changes:** None - all previous endpoints maintained compatibility
-
-**Deprecated:** None
 
 ⚠️ **Note:** Spring AI 2.0.0-M4 is a milestone release. APIs may change in future versions. Refer to official Spring AI documentation for updates.
 
