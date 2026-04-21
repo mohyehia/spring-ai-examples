@@ -4,7 +4,9 @@ spring:
   ai:
     ollama:
       chat:
-        model: "llama3.2:3b"
+#        model: "llama3.2:3b"
+        model: "gemma4:e2b" # used as multimodal only
+
 server:
   port: 8083
 
@@ -12,3 +14,4 @@ logging:
   level:
     root: info
     org.springframework.ai: debug
+    org.springframework.ai.chat.client.advisor: debug

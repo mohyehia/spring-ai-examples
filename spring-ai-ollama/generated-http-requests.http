@@ -42,3 +42,25 @@ GET http://localhost:8083/metadata/default
 
 ### Test simple logger advisor
 GET http://localhost:8083/metadata/custom-logger-advisor
+
+
+### ask the chat client to generate a response based on the provided prompt
+GET http://localhost:8083/ask?question="bad word, you don't know my name?"
+
+### get structured validated response using advisor
+GET localhost:8083/parser/structured-advisor
+
+### get info about images
+GET localhost:8083/multi-modal
+
+### chat with memory
+GET localhost:8083/memory?question="No"
+
+### chat with memory for user
+GET localhost:8083/memory/username/ask?question=what is my name"
+
+### get conversation-ids
+GET localhost:8083/memory/conversations-ids
+
+### get by conversation-id
+GET localhost:8083/memory/conversations/default

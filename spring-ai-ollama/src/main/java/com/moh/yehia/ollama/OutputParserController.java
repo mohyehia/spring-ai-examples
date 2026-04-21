@@ -2,6 +2,8 @@ package com.moh.yehia.ollama;
 
 import org.springframework.ai.chat.client.ChatClient;
 import org.springframework.ai.chat.client.ResponseEntity;
+import org.springframework.ai.chat.client.advisor.SimpleLoggerAdvisor;
+import org.springframework.ai.chat.client.advisor.StructuredOutputValidationAdvisor;
 import org.springframework.ai.chat.model.ChatResponse;
 import org.springframework.ai.chat.prompt.Prompt;
 import org.springframework.ai.chat.prompt.PromptTemplate;
@@ -9,6 +11,7 @@ import org.springframework.ai.converter.BeanOutputConverter;
 import org.springframework.ai.converter.ListOutputConverter;
 import org.springframework.ai.converter.MapOutputConverter;
 import org.springframework.beans.factory.annotation.Value;
+import org.springframework.core.Ordered;
 import org.springframework.core.ParameterizedTypeReference;
 import org.springframework.core.io.Resource;
 import org.springframework.web.bind.annotation.GetMapping;
@@ -113,5 +116,21 @@ public class OutputParserController {
         return chatClient.prompt(prompt)
                 .stream()
                 .content();
+    }
+
+    @GetMapping("/structured-advisor")
+    public List<SongDTO> getResponseStructureValidated(@RequestParam(defaultValue = "Adele") String artist) {
+        StructuredOutputValidationAdvisor structuredOutputValidationAdvisor = StructuredOutputValidationAdvisor.builder()
+                .outputType(new ParameterizedTypeReference<List<SongDTO>>() {
+                })
+                .maxRepeatAttempts(3)
+                .advisorOrder(Ordered.HIGHEST_PRECEDENCE + 10)
+                .build();
+        return chatClient.prompt(new PromptTemplate(textPrompt)
+                        .create(Map.of("artist", artist)))
+                .advisors(new SimpleLoggerAdvisor(), structuredOutputValidationAdvisor)
+                .call()
+                .entity(new ParameterizedTypeReference<>() {
+                });
     }
 }

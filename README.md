@@ -39,18 +39,26 @@ A minimalist Spring Boot REST service that showcases Spring AI's ChatClient abst
 ### Ollama Setup
 1. **Install Ollama** from [ollama.ai](https://ollama.ai/)
 2. **Start Ollama service** (runs on `localhost:11434` by default)
-3. **Pull the required model:**
+3. **Pull the required models:**
    ```bash
+   # Multimodal model (recommended for V1.3+)
+   ollama pull gemma4:e2b
+   
+   # Alternative: Lightweight text-only model
    ollama pull llama3.2:3b
-   ```
-   Or for better quality (requires more resources):
-   ```bash
+   
+   # Or for better quality (requires more resources)
    ollama pull llama3.1:8b
    ```
 4. **Verify Ollama is running:**
    ```bash
    curl http://localhost:11434/api/tags
    ```
+
+**Model Recommendations:**
+- **V1.3+ with Multimodal:** Use `gemma4:e2b` for image analysis and improved reasoning
+- **Text-Only or Lightweight:** Use `llama3.2:3b` for fast inference
+- **High Quality:** Use `llama3.1:8b` for better outputs (requires ~8GB RAM)
 
 ⚠️ **Critical:** Ollama must be running before starting the Spring Boot application. The application will start but fail silently when making requests if Ollama is unavailable.
 
@@ -104,6 +112,8 @@ spring-ai-examples/
         │   │   ├── PromptController.java            # Advanced prompting patterns
         │   │   ├── OutputParserController.java      # Output parsing & conversion
         │   │   ├── MetadataController.java          # Metadata & advisors management
+        │   │   ├── ChatMemoryController.java        # Conversation memory & history
+        │   │   ├── MultiModalController.java        # Image analysis capabilities
         │   │   ├── SongDTO.java                     # Data transfer object
         │   │   └── SpringAiOllamaApplication.java   # Entry point
         │   └── resources/
@@ -261,22 +271,29 @@ spring:
   ai:
     ollama:
       chat:
-        model: "llama3.2:3b"        # Model to use (must be pulled in Ollama)
+        model: "gemma4:e2b"         # Model to use (multimodal support)
+        # model: "llama3.2:3b"      # Alternative: text-only, lightweight
 server:
   port: 8083                        # Spring Boot server port
 logging:
   level:
     root: info                      # Logging level
     org.springframework.ai: debug    # Enable debug logging for Spring AI
+    org.springframework.ai.chat.client.advisor: debug  # Advisor-specific logging
 ```
 
 ### Customization Options
 
-| Configuration                 | Default                  | Purpose            |
-|-------------------------------|--------------------------|--------------------|
-| `spring.ai.ollama.chat.model` | `llama3.1:8b`            | Ollama model name  |
-| `spring.ai.ollama.base-url`   | `http://localhost:11434` | Ollama service URL |
-| `server.port`                 | `8083`                   | Application port   |
+| Configuration                 | Default                  | Purpose                        |
+|-------------------------------|--------------------------|--------------------------------|
+| `spring.ai.ollama.chat.model` | `gemma4:e2b`             | Ollama model name (multimodal) |
+| `spring.ai.ollama.base-url`   | `http://localhost:11434` | Ollama service URL             |
+| `server.port`                 | `8083`                   | Application port               |
+
+**Model Selection:**
+- **gemma4:e2b** (Recommended): Multimodal support for images + text, better reasoning
+- **llama3.2:3b**: Lightweight, fast inference, text-only
+- **llama3.1:8b**: Better quality, higher compute requirements
 
 ### Prompt Templates
 
@@ -969,6 +986,271 @@ public String testCustomLoggerAdvisor() {
 - Response post-processing
 - Error handling and retry logic
 
+### ChatMemoryController Endpoints
+
+The `ChatMemoryController` (`/memory` base path) demonstrates **Spring AI's conversation memory management** with multi-turn chat support and per-user conversation tracking.
+
+#### GET /memory
+
+Returns a response to a question using a **message window memory** that retains the last 5 messages for context.
+
+**Request:**
+```bash
+curl "http://localhost:8083/memory?question=What%20is%20the%20capital%20of%20France?"
+```
+
+**Response:**
+```
+The capital of France is Paris.
+```
+
+**Key Features:**
+- **Message Window Memory:** MessageWindowChatMemory with 5-message limit
+- **Conversation Context:** Maintains context within a single conversation
+- **Memory Advisor:** Uses MessageChatMemoryAdvisor to inject conversation history
+- **Stateless API:** Each request is independent but can reference conversation history
+
+**Implementation:**
+```java
+@GetMapping
+String ask(@RequestParam String question) {
+    MessageWindowChatMemory messageWindowChatMemory = MessageWindowChatMemory.builder()
+            .maxMessages(5)
+            .build();
+    return chatClient.prompt()
+            .user(question)
+            .advisors(MessageChatMemoryAdvisor.builder(messageWindowChatMemory).build())
+            .call()
+            .content();
+}
+```
+
+**Memory Pattern Benefits:**
+- Maintains conversation context without database
+- Configurable message retention window
+- Automatic memory management with size limits
+- Works with advisors for transparent integration
+
+#### GET /memory/{user}/ask
+
+Returns a response to a user-specific question with **persistent per-user conversation history**.
+
+**Request:**
+```bash
+curl "http://localhost:8083/memory/john-doe/ask?question=Tell%20me%20about%20your%20favorite%20color"
+```
+
+**Response:**
+```
+My favorite color is blue because it represents calmness and tranquility. What about you?
+```
+
+**Key Features:**
+- **User-Scoped Conversations:** Each user has their own conversation history
+- **In-Memory Repository:** InMemoryChatMemoryRepository tracks all users
+- **PromptChatMemoryAdvisor:** Injects conversation history into the system prompt
+- **Thinking Disabled:** Uses OllamaChatOptions to disable extended thinking for faster responses
+- **Conversation ID:** Uses user path parameter as conversation ID
+
+**Implementation:**
+```java
+@GetMapping("/{user}/ask")
+String askPerUser(@PathVariable String user, @RequestParam String question) {
+    MessageWindowChatMemory messageWindowChatMemory = 
+        MessageWindowChatMemory.builder()
+            .chatMemoryRepository(inMemoryChatMemoryRepository)
+            .build();
+    
+    PromptChatMemoryAdvisor promptChatMemoryAdvisor = 
+        PromptChatMemoryAdvisor.builder(messageWindowChatMemory).build();
+
+    return chatClient.prompt()
+            .user(question)
+            .options(OllamaChatOptions.builder().disableThinking().build())
+            .advisors(promptChatMemoryAdvisor)
+            .advisors(advisorSpec -> advisorSpec.param(ChatMemory.CONVERSATION_ID, user))
+            .call()
+            .content();
+}
+```
+
+**Per-User Pattern Benefits:**
+- Multiple concurrent conversations without interference
+- User isolation and privacy
+- Conversation persistence during session lifetime
+- Easy to extend to database storage
+
+#### GET /memory/conversations-ids
+
+Returns a list of all conversation IDs tracked in memory along with their message contents.
+
+**Request:**
+```bash
+curl http://localhost:8083/memory/conversations-ids
+```
+
+**Response:**
+```json
+["john-doe", "jane-smith", "bob-johnson"]
+```
+
+**Logged Output (in console):**
+```
+Conversation ID: john-doe, Role: USER, Content: Tell me about your favorite color
+Conversation ID: john-doe, Role: ASSISTANT, Content: My favorite color is blue...
+Conversation ID: jane-smith, Role: USER, Content: What is AI?
+...
+```
+
+**Key Features:**
+- **Conversation Discovery:** Lists all active conversation IDs
+- **Message Inspection:** Logs all messages per conversation with roles
+- **Debugging Support:** Useful for monitoring conversation state
+- **Role Tracking:** Shows whether messages are USER or ASSISTANT
+
+**Implementation:**
+```java
+@GetMapping("/conversations-ids")
+List<String> findConversationIds() {
+    List<String> conversationIds = inMemoryChatMemoryRepository.findConversationIds();
+    conversationIds.forEach(id -> {
+        List<Message> messages = inMemoryChatMemoryRepository.findByConversationId(id);
+        messages.forEach(message -> log.info("Conversation ID: {}, Role: {}, Content: {}", 
+            id, message.getMessageType(), message.getText()));
+    });
+    return conversationIds;
+}
+```
+
+**Use Cases:**
+- Monitoring active conversations
+- Debugging conversation state
+- Auditing conversation history
+- Session management
+
+#### GET /memory/conversations/{id}
+
+Returns the complete message history for a specific conversation ID.
+
+**Request:**
+```bash
+curl http://localhost:8083/memory/conversations/john-doe
+```
+
+**Response:**
+```json
+[
+  {
+    "messageType": "USER",
+    "text": "Tell me about your favorite color",
+    "metadata": {...}
+  },
+  {
+    "messageType": "ASSISTANT",
+    "text": "My favorite color is blue because it represents calmness and tranquility. What about you?",
+    "metadata": {...}
+  },
+  {
+    "messageType": "USER",
+    "text": "That's nice, I prefer green",
+    "metadata": {...}
+  }
+]
+```
+
+**Key Features:**
+- **Full Conversation Retrieval:** Get all messages for a user
+- **Message Details:** Includes message type, content, and metadata
+- **Debugging Tool:** Inspect exact conversation state
+- **Export Capability:** Foundation for conversation export/persistence
+
+**Implementation:**
+```java
+@GetMapping("/conversations/{id}")
+List<Message> findConversations(@PathVariable String id) {
+    return inMemoryChatMemoryRepository.findByConversationId(id);
+}
+```
+
+**Message Object Structure:**
+- `messageType`: USER, ASSISTANT, or SYSTEM
+- `text`: Message content
+- `metadata`: Custom metadata attached to message
+
+### MultiModalController Endpoints
+
+The `MultiModalController` (`/multi-modal` base path) demonstrates **Spring AI's multimodal capabilities** for processing images and other media types alongside text prompts.
+
+#### GET /multi-modal
+
+Returns detailed image analysis for a test PNG image using multimodal model.
+
+**Request:**
+```bash
+curl http://localhost:8083/multi-modal
+```
+
+**Response:**
+```
+This image shows a complex neural network architecture diagram with multiple layers and connections.
+The diagram illustrates the flow of data through various processing nodes, demonstrating the structure
+of a deep learning model. The visualization includes inputs, hidden layers, and outputs connected by
+directed edges representing data flow and weight parameters...
+```
+
+**Key Features:**
+- **Image Processing:** Analyzes PNG images using multimodal models
+- **System Prompt:** Provides guidance on how to analyze images
+- **Media Integration:** Combines text prompts with image content
+- **MIME Type Support:** Specifies media type for proper handling
+- **Model Support:** Requires multimodal-capable model (e.g., gemma4:e2b)
+
+**Implementation:**
+```java
+@GetMapping
+public String imageInquiry() {
+    return chatClient
+            .prompt()
+            .advisors(new SimpleLoggerAdvisor())
+            .system("You are a helpful assistant that can analyze images and provide insights.")
+            .user(promptUserSpec -> promptUserSpec
+                    .text("Analyze the image and describe its content in detail.")
+                    .media(MimeTypeUtils.IMAGE_PNG, 
+                           new ClassPathResource("/images/multimodal.test.png")))
+            .call()
+            .content();
+}
+```
+
+**Multimodal Pattern Benefits:**
+- Support for multiple input types (text + image)
+- Clean API for media attachment
+- Automatic MIME type handling
+- Enables AI applications with visual understanding
+
+**Supported Media Types:**
+```java
+MimeTypeUtils.IMAGE_PNG
+MimeTypeUtils.IMAGE_JPEG
+MimeTypeUtils.IMAGE_GIF
+MimeTypeUtils.IMAGE_WEBP
+// Other media types as supported by LLM provider
+```
+
+**Image Requirements:**
+- **Location:** `src/main/resources/images/`
+- **Format:** PNG, JPEG, GIF, WebP
+- **Size:** Varies by model (typically <10MB for LLMs)
+- **Access:** Loaded via Spring's ClassPathResource for resource management
+
+**Multimodal Use Cases:**
+- Document/receipt analysis
+- Visual content moderation
+- Image-to-text conversion
+- Scene understanding
+- Design feedback
+- Quality assurance for visual content
+
 ### Output Conversion Patterns Overview
 
 Spring AI provides **multiple approaches** for converting unstructured LLM text into structured Java objects:
@@ -1117,6 +1399,16 @@ Beyond the current implementations, this codebase is ready to extend with:
 
 ### Recent Updates & New Features
 
+#### V1.3 Release Updates:
+- **Conversation Memory:** Added MessageWindowChatMemory for multi-turn conversations via `ChatMemoryController`
+- **Per-User Conversations:** InMemoryChatMemoryRepository enables separate conversation contexts per user
+- **Memory Advisors:** MessageChatMemoryAdvisor and PromptChatMemoryAdvisor for transparent memory management
+- **Conversation Retrieval:** Endpoints to query and inspect conversation history by ID
+- **Multimodal Support:** Added image analysis capabilities via `MultiModalController`
+- **Image Processing:** PNG and image MIME type support for visual content analysis
+- **Gemma 4 Integration:** Model switch to gemma4:e2b for enhanced multimodal capabilities
+- **Enhanced Logging:** Added advisor debug logging for chat client in application.yaml
+
 #### V1.2 Release Updates:
 - **Metadata Management:** Added custom metadata attachment to system and user prompts
 - **Request Tracing:** Correlation IDs, user identification, priority levels, and source tracking
@@ -1134,6 +1426,13 @@ Beyond the current implementations, this codebase is ready to extend with:
 - **Improved Documentation:** Comprehensive endpoint documentation with pattern comparisons
 
 #### New Endpoints Added:
+**V1.3:**
+1. **GET /memory** - Simple question answering with message window memory context
+2. **GET /memory/{user}/ask** - Per-user conversation tracking with persistent history
+3. **GET /memory/conversations-ids** - List all active conversation IDs with message inspection
+4. **GET /memory/conversations/{id}** - Retrieve complete message history for a conversation
+5. **GET /multi-modal** - Image analysis with multimodal LLM support
+
 **V1.2:**
 1. **GET /metadata** - Custom metadata attachment to prompts with tracing capabilities
 2. **GET /metadata/default** - Pre-configured default context and metadata management
@@ -1300,14 +1599,34 @@ logging:
 
 ## 📝 Version Information
 
-| Component   | Version          | Status                  | Notes                          |
-|-------------|------------------|-------------------------|--------------------------------|
-| Spring Boot | 4.0.5            | Stable                  | Java 21 required               |
-| Spring AI   | 2.0.0-M4         | Milestone (pre-release) | API subject to change          |
-| Java        | 21               | Current LTS             | Min 21, recommended 21+        |
-| Ollama      | Latest           | Self-managed            | Tested with llama3.2:3b        |
-| llama3.2    | 3b (default)     | Configurable            | Lightweight, fast inference    |
-| llama3.1    | 8b (optional)    | Alternative             | Better quality, higher compute |
+| Component   | Version       | Status                  | Notes                               |
+|-------------|---------------|-------------------------|-------------------------------------|
+| Spring Boot | 4.0.5         | Stable                  | Java 21 required                    |
+| Spring AI   | 2.0.0-M4      | Milestone (pre-release) | API subject to change               |
+| Java        | 21            | Current LTS             | Min 21, recommended 21+             |
+| Ollama      | Latest        | Self-managed            | Tested with gemma4:e2b, llama3.2:3b |
+| gemma4      | e2b           | Multimodal support      | Image analysis capabilities         |
+| llama3.2    | 3b            | Configurable            | Lightweight, fast inference         |
+| llama3.1    | 8b (optional) | Alternative             | Better quality, higher compute      |
+
+### Release Notes - V1.3
+
+**New Features:**
+- ✨ **Chat Memory Management** - Multi-turn conversation history with MessageWindowChatMemory via `ChatMemoryController`
+- ✨ **Per-User Conversations** - Track separate conversation contexts for multiple users with InMemoryChatMemoryRepository
+- ✨ **Multimodal Support** - Image analysis capabilities via `MultiModalController` with PNG/image MIME type support
+- ✨ **Memory Advisors** - MessageChatMemoryAdvisor and PromptChatMemoryAdvisor for conversation context management
+- ✨ **Conversation Retrieval** - Query conversation history by ID with full message details and roles
+- ✨ **Gemma 4 Integration** - Model switch to gemma4:e2b for enhanced multimodal image analysis
+
+**Updated Configuration:**
+- 🔄 **Model Configuration** - Updated default model from llama3.2:3b to gemma4:e2b (with llama3.2:3b as fallback for text-only)
+- 🔄 **New Endpoints** - Six new memory and multimodal endpoints for conversation management and image analysis
+- 🔄 **Enhanced Advisor Support** - Added debug logging for chat client advisors in application.yaml
+
+**Breaking Changes:** None - all previous endpoints maintained compatibility
+
+**Deprecated:** None
 
 ### Release Notes - V1.2
 
@@ -1337,24 +1656,36 @@ logging:
 
 ## 🚀 Next Steps
 
-1. **Explore ChatClient capabilities:**
-   - System prompts
-   - Streaming responses
-   - Tool calling / Function invocation
+1. **Enhance Memory Management:**
+   - Persist conversations to database (PostgreSQL, MongoDB)
+   - Add conversation search and filtering
+   - Implement conversation export (JSON, PDF)
+   - Add conversation summarization
 
-2. **Add more endpoints:**
-   - Multi-turn conversations
-   - Document processing
-   - Code analysis
+2. **Expand Multimodal Capabilities:**
+   - Support for video frame analysis
+   - Document scanning and OCR
+   - Audio transcription and analysis
+   - Diagram/flowchart processing
 
-3. **Integrate persistence:**
-   - Save conversations to database
-   - Store user preferences
+3. **Add Advanced Conversational Features:**
+   - Function calling / Tool invocation patterns
+   - Retrieval-Augmented Generation (RAG)
+   - Named entity extraction from conversations
+   - Sentiment analysis across conversation history
 
-4. **Deploy to production:**
-   - Docker containerization
-   - Cloud deployment with managed LLM providers
-   - API authentication and rate limiting
+4. **Scale and Deploy:**
+   - Docker containerization with Ollama service
+   - Kubernetes deployment configuration
+   - Cloud deployment with managed LLM providers (OpenAI, Azure, Google)
+   - API authentication, rate limiting, and usage tracking
+   - Load testing for concurrent conversations
+
+5. **Monitoring and Analytics:**
+   - Conversation metrics and analytics dashboard
+   - Token usage tracking and cost analysis
+   - Performance monitoring with custom advisors
+   - Error rate and latency tracking
 
 ## 📄 License
 
