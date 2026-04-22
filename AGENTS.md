@@ -1,88 +1,178 @@
 # AI Agent Guide for spring-ai-examples
 
+## 📋 Quick Navigation
+
+- [Project Overview](#project-overview) - Architecture and modules
+- [Developer Workflows](#developer-workflows) - Build, run, and test
+- [Code Patterns & Conventions](#code-patterns--conventions) - Implementation examples
+- [Module Selection Guide](#module-selection-guide) - When to use which module
+- [Extension Points](#extension-points) - How to extend
+- [Critical Developer Knowledge](#critical-developer-knowledge) - Must-know information
+- [Common Pitfalls](#common-pitfalls) - Issues and solutions
+- [File Reference](#file-reference) - Project structure and locations
+
+---
+
 ## Project Overview
 
-This is a Spring Boot 4.0.5 repository demonstrating **Spring AI integration with Ollama**, a local LLM orchestration framework. The single module (`spring-ai-ollama`) runs on port 8083 and exposes REST endpoints for various AI-powered operations using Ollama's LLM models.
+This is a **Spring Boot 4.0.5 repository** demonstrating **Spring AI integration patterns** with two distinct modules:
+
+1. **`spring-ai-ollama`** (Port 8083) - Core AI patterns with Ollama LLM
+2. **`spring-ai-redis-chat-memory`** (Port 8084) - Persistent chat memory with Redis
 
 **Key Technologies:**
 - Spring Boot 4.0.5 (Java 21)
 - Spring AI 2.0.0-M4 (specifically `spring-ai-starter-model-ollama`)
+- Ollama chat models: `gemma4:e2b` (multimodal, recommended), `llama3.2:3b` (lightweight)
+- Redis 7.0+ (for persistent memory in redis-chat-memory module)
 - Maven for build management
-- Ollama chat model: `llama3.1:8b` (configurable)
 
 ## Architecture & Data Flow
 
-### Component Structure
+### Multi-Module Architecture
+
 ```
-┌─────────────────────────────────────────┐
-│       Spring Boot REST Application      │
-│  Port 8083                              │
-│                                         │
-│  ┌─────────────────┐  ┌──────────────┐ │
-│  │ ChatController  │  │ PromptCtrlr  │ │
-│  │ GET /           │  │ GET /prompts │ │
-│  └────────┬────────┘  └──────┬───────┘ │
-│           │                   │        │
-│  ┌────────▼───────────────────▼──────┐ │
-│  │   Spring AI ChatClient             │ │
-│  │ (Auto-configured by Spring)        │ │
-│  └────────┬──────────────────────────┘ │
-│           │                            │
-│  ┌────────▼───────────────────────────┐│
-│  │   OutputParserController           ││
-│  │   GET /parser, /parser/list, etc   ││
-│  └────────┬──────────────────────────┘│
-└───────────┼────────────────────┬───────┘
-            │                    │
-      ┌─────▼───────┐    ┌──────▼──────────┐
-      │   Ollama    │    │ application.yaml│
-      │ localhost   │    │ + prompts/**    │
-      │  :11434     │    └─────────────────┘
-      └─────────────┘
+┌─────────────────────────────────────────────────────────────┐
+│           Spring Boot 4.0.5 REST Applications               │
+│                                                             │
+│  ┌─────────────────────────────┐  ┌──────────────────────┐  │
+│  │  spring-ai-ollama           │  │ spring-ai-redis      │  │
+│  │  Port 8083                  │  │ -chat-memory         │  │
+│  │                             │  │ Port 8084            │  │
+│  │  ┌──────────────────────┐   │  │                      │  │
+│  │  │ ChatController       │   │  │ ┌──────────────────┐ │  │
+│  │  │ PromptController     │   │  │ │ RedisChatMemory  │ │  │
+│  │  │ OutputParserCtrlr    │   │  │ │ Controller       │ │  │
+│  │  │ MetadataController   │   │  │ │                  │ │  │
+│  │  │ ChatMemoryController │   │  │ │ • InMemory       │ │  │
+│  │  │ MultiModalController │   │  │ │ • Redis-backed   │ │  │
+│  │  └──────────────────────┘   │  │ └──────────────────┘ │  │
+│  │                             │  │                      │  │
+│  └────────────┬────────────────┘  └───────┬──────────────┘  │
+└───────────────┼───────────────────────────┼─────────────────┘
+                │                           │
+        ┌───────▼─────────┐          ┌──────▼──────────┐
+        │ Ollama          │          │ Redis           │
+        │ localhost:11434 │          │ localhost:6379  │
+        │ (gemma4:e2b)    │          │ (v7.0+)         │
+        └─────────────────┘          └─────────────────┘
 ```
 
-**Critical Integration Point:** All controllers use constructor injection of `ChatClient.Builder` which is **auto-configured by Spring AI**. The `ChatClient` abstracts direct Ollama API calls.
+### Module Breakdown
 
-### Three Controller Patterns
+**spring-ai-ollama** (6 Controllers, 22+ Endpoints):
+- ChatController - Simple Q&A with logging
+- PromptController - Template-based & system messages
+- OutputParserController - Structured output (List, Map, DTO, Entity, ResponseEntity, Stream)
+- MetadataController - Custom metadata & advisor patterns
+- ChatMemoryController - In-memory conversation management
+- MultiModalController - Image analysis with multimodal models
 
-1. **ChatController** - Simple prompt/response with logging
-2. **PromptController** - Template-based and system message patterns
-3. **OutputParserController** - Structured data extraction (List, Map, DTO)
+**spring-ai-redis-chat-memory** (1 Controller):
+- RedisChatMemoryController - Redis-backed persistent chat
+
+### Critical Integration Points
+
+1. **ChatClient.Builder** - Auto-configured by Spring AI, injected via constructor
+2. **PromptTemplate** - StringTemplate-based prompt parameterization
+3. **Output Converters** - ListOutputConverter, MapOutputConverter, BeanOutputConverter
+4. **Memory Advisors** - MessageChatMemoryAdvisor, PromptChatMemoryAdvisor
+5. **Redis Repository** - RedisChatMemoryRepository for distributed state
 
 ### Configuration
-- **Model selection:** Configured in `application.yaml` under `spring.ai.ollama.chat.model`
-- **Ollama endpoint:** Defaults to `localhost:11434` (Ollama's default port)
-- **Server port:** 8083 (distinct from Ollama)
-- **Prompt templates:** Located in `src/main/resources/prompts/` (StringTemplate format `.st`)
-- **Output converters:** ListOutputConverter, MapOutputConverter, BeanOutputConverter available
+
+**spring-ai-ollama:**
+- **Model selection:** `spring.ai.ollama.chat.model` in `application.yaml`
+- **Ollama endpoint:** `localhost:11434` (Ollama default)
+- **Server port:** 8083
+- **Prompt templates:** `src/main/resources/prompts/` (StringTemplate `.st` format)
+- **Output converters:** ListOutputConverter, MapOutputConverter, BeanOutputConverter, native `.entity()`, `.responseEntity()`
+- **Default model:** `gemma4:e2b` (multimodal), fallback: `llama3.2:3b` (text-only)
+
+**spring-ai-redis-chat-memory:**
+- **Redis endpoint:** `localhost:6379` (Redis default)
+- **Redis version:** 7.0+ required
+- **Memory repository:** RedisChatMemoryRepository (auto-configured)
+- **Server port:** 8084
+- **Default model:** `llama3.2:3b` (lightweight text processing)
 
 ## Developer Workflows
 
 ### Build & Run
+
+**Build all modules:**
 ```bash
-# From spring-ai-ollama directory
 mvn clean install           # Full build with tests
-mvn spring-boot:run         # Start application on port 8083
-./mvnw spring-boot:run      # Cross-platform alternative (Windows/Unix)
+mvn clean install -DskipTests  # Skip tests for speed
+```
+
+**Run spring-ai-ollama (Port 8083):**
+```bash
+cd spring-ai-ollama
+mvn spring-boot:run
+# Or: ./mvnw spring-boot:run (cross-platform)
+```
+
+**Run spring-ai-redis-chat-memory (Port 8084):**
+```bash
+cd spring-ai-redis-chat-memory
+mvn spring-boot:run
+# Requires Redis 7.0+ running on localhost:6379
 ```
 
 ### Testing Endpoints
-- **GET** `http://localhost:8083/` → Returns joke from Ollama model (ChatController)
-- **GET** `http://localhost:8083/prompts` → Simple prompt response (PromptController)
-- **GET** `http://localhost:8083/prompts/popular?genre=tech` → Template-based response with parameters
-- **GET** `http://localhost:8083/prompts/instruct?userInput=Tell%20me%20a%20Joke` → System prompt + user message
-- **GET** `http://localhost:8083/parser?artist=Adele` → Text response from song prompt
-- **GET** `http://localhost:8083/parser/list?artist=Adele` → List output converter
-- **GET** `http://localhost:8083/parser/map?artist=Adele` → Map output converter
-- **GET** `http://localhost:8083/parser/dto?artist=Adele` → Strongly-typed DTO response
-- HTTP client requests available in `generated-http-requests.http`
+
+**spring-ai-ollama endpoints:**
+- `GET /` → Joke from LLM (ChatController)
+- `GET /prompts` → Simple prompt (PromptController)
+- `GET /prompts/popular?genre=tech` → Parameterized template
+- `GET /prompts/instruct?userInput=Tell%20me%20a%20Joke` → System + user messages
+- `GET /parser?artist=Adele` → Text response (OutputParserController)
+- `GET /parser/list?artist=Adele` → ListOutputConverter
+- `GET /parser/map?artist=Adele` → MapOutputConverter
+- `GET /parser/dto?artist=Adele` → BeanOutputConverter (strongly-typed DTO)
+- `GET /parser/entity?artist=Adele` → Native `.entity()` conversion
+- `GET /parser/response-entity?artist=Adele` → Metadata + entity
+- `GET /parser/stream?artist=Adele` → Server-Sent Events streaming
+- `GET /metadata` → Custom metadata on prompts
+- `GET /metadata/default` → Default context with metadata
+- `GET /metadata/custom-logger-advisor` → Custom advisor implementation
+- `GET /memory?question=...` → Simple in-memory conversation
+- `GET /memory/{user}/ask?question=...` → Per-user in-memory history
+- `GET /memory/conversations-ids` → List all conversation IDs
+- `GET /memory/conversations/{id}` → Retrieve conversation history
+- `GET /multi-modal` → Image analysis (PNG)
+
+**spring-ai-redis-chat-memory endpoints:**
+- `GET /memory?question=...` → Redis-backed persistent chat
+
+**HTTP Client:** `generated-http-requests.http` in each module
 
 ### Dependencies
-- Spring Web auto-configures embedded Tomcat
-- `spring-ai-starter-model-ollama` transitively brings Ollama chat dependencies via BOM import
-- No explicit test runner needed—JUnit 5 + Spring Boot Test included
+
+**spring-ai-ollama:**
+- Spring Web (auto-configures Tomcat)
+- spring-ai-starter-model-ollama (includes Ollama chat via BOM)
+- JUnit 5 + Spring Boot Test
+
+**spring-ai-redis-chat-memory:**
+- Spring Web
+- Spring Data Redis
+- spring-ai-starter-model-ollama
+- Lettuce Redis client
 
 ## Code Patterns & Conventions
+
+### ChatClient Pattern Quick Reference
+
+| Use Case            | Method                            | Return Type                       | Best For                  | Example                |
+|---------------------|-----------------------------------|-----------------------------------|---------------------------|------------------------|
+| **Simple Q&A**      | `.call().chatClientResponse()`    | `ChatClientResponse`              | Basic text responses      | Get joke from LLM      |
+| **Templates**       | `.call().chatResponse()`          | `ChatResponse`                    | Parameterized prompts     | Genre-based queries    |
+| **Structured Data** | `.call().entity(typeRef)`         | `T`                               | Type-safe conversion      | List/Map/DTO responses |
+| **With Metadata**   | `.call().responseEntity(typeRef)` | `ResponseEntity<ChatResponse, T>` | Token counting, debugging | Response analysis      |
+| **Real-time**       | `.stream().content()`             | `Flux<String>`                    | Long responses, streaming | Chat responses         |
+| **Memory**          | `.advisors(advisor)`              | `String`                          | Multi-turn conversation   | Chat history context   |
 
 ### Spring AI ChatClient Usage Patterns
 
@@ -164,63 +254,299 @@ Three converter types available:
    - Example: `List<SongDTO>` with multiple fields
    - Requires: `new ParameterizedTypeReference<Type>() {}`
 
+**Modern Patterns (V1.1+):**
+
+4. **Native `.entity()` method** → `T`
+   - Use: Direct type conversion without manual converters
+   - Cleaner syntax: `chatClient.prompt(prompt).call().entity(typeRef)`
+
+5. **`.responseEntity()` method** → `ResponseEntity<ChatResponse, T>`
+   - Use: Get both metadata and parsed data
+   - Access token counts: `response.chatResponse().getMetadata()`
+
+6. **`.stream()` method** → `Flux<String>`
+   - Use: Server-Sent Events (SSE) streaming
+   - Non-blocking, token-by-token output
+   - Best for: Long-form content, real-time UI updates
+
 **Converter Pattern:**
 1. Create converter: `new XxxOutputConverter()` or `new BeanOutputConverter<>(typeRef)`
 2. Get format: `converter.getFormat()` → injected into prompt
 3. Parse result: `converter.convert(chatClient.prompt(...).call().content())`
+
+### Memory Management Patterns (V1.3)
+
+**Pattern 1: Simple In-Memory Chat (ChatMemoryController)**
+```java
+MessageWindowChatMemory memory = MessageWindowChatMemory.builder()
+    .maxMessages(5)
+    .build();
+chatClient.prompt()
+    .user(question)
+    .advisors(MessageChatMemoryAdvisor.builder(memory).build())
+    .call()
+    .content();
+```
+
+**Pattern 2: Per-User In-Memory Chat**
+```java
+MessageWindowChatMemory memory = MessageWindowChatMemory.builder()
+    .chatMemoryRepository(inMemoryChatMemoryRepository)
+    .build();
+PromptChatMemoryAdvisor advisor = PromptChatMemoryAdvisor.builder(memory).build();
+chatClient.prompt()
+    .user(question)
+    .advisors(advisor)
+    .advisors(spec -> spec.param(ChatMemory.CONVERSATION_ID, userId))
+    .call()
+    .content();
+```
+
+**Pattern 3: Redis-Backed Persistent Chat (RedisChatMemoryController)**
+```java
+MessageWindowChatMemory memory = MessageWindowChatMemory.builder()
+    .chatMemoryRepository(redisChatMemoryRepository)  // Injected bean
+    .build();
+chatClient.prompt()
+    .user(question)
+    .advisors(PromptChatMemoryAdvisor.builder(memory).build())
+    .call()
+    .content();
+```
+
+**Key Differences:**
+- **In-Memory:** Lost on app restart, single-instance only
+- **Redis:** Persists across restarts, distributed across instances
+- **Per-User:** Conversation isolation with conversation IDs
+
+### Metadata & Advisor Patterns (V1.2)
+
+**Custom Metadata on Prompts:**
+```java
+chatClient.prompt()
+    .system(spec -> spec.text("You are helpful")
+        .metadata("version", "1.0"))
+    .user(spec -> spec.text("Hello")
+        .metadata("userId", "user123"))
+    .call()
+    .chatResponse();
+```
+
+**Custom SimpleLoggerAdvisor:**
+```java
+SimpleLoggerAdvisor advisor = new SimpleLoggerAdvisor(
+    request -> "Custom request: " + request.prompt(),
+    response -> "Custom response: " + response.getResult(),
+    0  // Priority (0 = highest)
+);
+chatClient.prompt("Hello")
+    .advisors(advisor)
+    .call()
+    .content();
+```
+
+**Use Cases:** Request tracing, metrics collection, content filtering, transformation
+
+### Multimodal Patterns (V1.3)
+
+**Image Analysis with Text:**
+```java
+chatClient.prompt()
+    .system("You analyze images")
+    .user(spec -> spec
+        .text("Analyze this image")
+        .media(MimeTypeUtils.IMAGE_PNG, new ClassPathResource("/images/test.png")))
+    .call()
+    .content();
+```
+
+**Requirements:**
+- Multimodal-capable model (e.g., `gemma4:e2b`)
+- Image files in `src/main/resources/images/`
+- Supported formats: PNG, JPEG, GIF, WebP
 
 ### Logging
 - SLF4J with loggers created via `LoggerFactory.getLogger()`
 - All controllers log model responses at INFO level for debugging
 - Framework: Spring AI logs available at DEBUG level
 - See ChatController and PromptController for examples
+- **Enable debug logging:** Add to `application.yaml`:
+  ```yaml
+  logging:
+    level:
+      org.springframework.ai: DEBUG
+      com.moh.yehia: DEBUG
+  ```
 
 ### Dependency Injection
 - Constructor injection (all controllers receive `ChatClient.Builder`)
 - Spring auto-configuration handles ChatClient bean creation
 - No explicit @Bean definitions needed for AI components
 - Resource injection via `@Value("classpath:...")`
+- **Pattern:** All beans created through Spring Framework without manual configuration
+
+## Version & Release Information
+
+### Current Versions
+- **Spring Boot:** 4.0.5 (stable)
+- **Spring AI:** 2.0.0-M4 (milestone, pre-release)
+- **Java:** 21 (LTS)
+- **Ollama:** Latest (self-managed)
+- **Redis:** 7.0+ (for redis-chat-memory module)
+
+### Release History
+- **V1.3:** Chat memory, per-user conversations, multimodal image analysis, metadata advisors
+- **V1.2:** Metadata management, request/response tracing, advisor patterns
+- **V1.1:** Native entity conversion, response metadata, streaming support
+
+### API Stability Notes
+- ⚠️ Spring AI 2.0.0-M4 is pre-release, API may change
+- ✅ Output converter API stable since V1.1
+- ✅ Memory advisor API stable since V1.3
+- ✅ Ollama integration stable across versions
+- **Recommendation:** Monitor Spring AI docs for updates before upgrading
+
+## Extension Points
+
+### spring-ai-ollama
+1. **Add new endpoints:** Create methods in controllers with different prompts/patterns
+2. **Change models:** Update `spring.ai.ollama.chat.model` in `application.yaml` (gemma4:e2b, llama3.2:3b, llama3.1:8b)
+3. **Create new prompt templates:** Add `.st` files in `src/main/resources/prompts/` and inject with `@Value`
+4. **Add custom converters:** Extend `OutputConverter<T>` interface for new output types
+5. **Add streaming endpoints:** Use `.stream().content()` for real-time responses
+6. **Add advisor chains:** Combine multiple advisors for complex processing
+7. **Add image processing:** Use `MultiModalController` as template for other media types
+
+### spring-ai-redis-chat-memory
+1. **Add conversation export:** Save conversations to database
+2. **Add conversation search:** Query past conversations by content
+3. **Add TTL customization:** Adjust `Duration.ofHours(24)` in configuration
+4. **Add analytics:** Track conversation metrics
+5. **Add multimodal:** Use same patterns from spring-ai-ollama MultiModalController
+
+## Module Selection Guide
+
+### When to Use spring-ai-ollama
+- **Learning Spring AI patterns** - Most comprehensive examples (6 controllers)
+- **Prototyping AI features** - Quick development with immediate feedback
+- **Image/document analysis** - Multimodal support built-in
+- **Complex output parsing** - All converter patterns demonstrated
+- **Single-instance deployments** - No distributed state needed
+- **Advanced patterns** - Metadata, advisors, streaming, memory
+
+### When to Use spring-ai-redis-chat-memory
+- **Multi-user chat applications** - Distributed conversation management
+- **Production deployments** - Persistent storage with TTL
+- **Microservices architecture** - Shared memory across instances
+- **Long-lived conversations** - Conversations survive app restarts
+- **Conversation history required** - Full message audit trail
+- **Horizontal scaling** - Stateless application design
+
+### Combined Usage Pattern
+**Recommended for Production:**
+1. Start with spring-ai-ollama patterns for core AI logic
+2. Add spring-ai-redis-chat-memory for persistent state
+3. Extend with custom converters and advisors from spring-ai-ollama
+4. Deploy as microservice with load balancing
 
 ## Critical Developer Knowledge
 
-### Ollama Prerequisites
-- Ollama service must be running on `localhost:11434` before starting the app
-- Model `llama3.1:8b` must be available locally: `ollama pull llama3.1:8b`
-- The application **fails silently** if Ollama isn't accessible—check logs carefully
-- Verify with: `curl http://localhost:11434/api/tags`
+### Prerequisites
+- Ollama service must be running on `localhost:11434` before starting app
+- Redis 7.0+ required for spring-ai-redis-chat-memory (NOT required for spring-ai-ollama alone)
+- Sufficient models installed: `ollama list`
+- Verify services: `curl http://localhost:11434/api/tags && redis-cli ping`
 
-### Spring AI Stability Notes
+### Spring AI Stability
 - Using 2.0.0-M4 (milestone release, not stable)
-- API may change; refer to `spring-ai-starter-model-ollama` docs if unexpected issues occur
+- API may change; refer to official Spring AI docs for updates
 - ChatClient/ChatResponse object handling differs between endpoints
 - Output converter API is stable and production-ready
+- Memory advisor patterns stable since V1.3
 
-### Extension Points
-1. **Add new endpoints:** Create methods in controllers with different prompts
-2. **Change models:** Update `spring.ai.ollama.chat.model` in `application.yaml`
-3. **Create new prompt templates:** Add `.st` files in `src/main/resources/prompts/` and inject with `@Value`
-4. **Add custom converters:** Extend `OutputConverter<T>` interface for new output types
-5. **Add custom AI logic:** Extend ChatClient usage with streaming, function calling (see Spring AI docs)
-6. **Add storage/persistence:** No current database layer—would need additional dependencies
+### Performance Considerations
+- First request is slow (model loads into memory)
+- gemma4:e2b requires more resources than llama3.2:3b
+- Streaming responses better for long content
+- Redis adds latency vs. in-memory; use for multi-instance scenarios
+- Token counting useful for cost analysis
 
 ## File Reference
-- **Controllers:** 
-  - `src/main/java/com/moh/yehia/ollama/ChatController.java` - Simple joke endpoint
-  - `src/main/java/com/moh/yehia/ollama/PromptController.java` - Advanced prompting patterns
-  - `src/main/java/com/moh/yehia/ollama/OutputParserController.java` - Structured output parsing
-- **Data Objects:** `src/main/java/com/moh/yehia/ollama/SongDTO.java` - Record for structured responses
-- **Prompt templates:** `src/main/resources/prompts/` (`.st` StringTemplate files)
-- **Config:** `src/main/resources/application.yaml`
-- **Tests:** `src/test/java/.../SpringAiOllamaApplicationTests.java` (minimal—context loads test only)
-- **Build config:** `pom.xml`
+
+### spring-ai-ollama Controllers
+- `src/main/java/com/moh/yehia/ollama/ChatController.java` - Simple joke endpoint
+- `src/main/java/com/moh/yehia/ollama/PromptController.java` - Template & system message patterns
+- `src/main/java/com/moh/yehia/ollama/OutputParserController.java` - Output conversion (6 patterns)
+- `src/main/java/com/moh/yehia/ollama/MetadataController.java` - Metadata & advisor patterns
+- `src/main/java/com/moh/yehia/ollama/ChatMemoryController.java` - In-memory conversation management
+- `src/main/java/com/moh/yehia/ollama/MultiModalController.java` - Image analysis
+
+### spring-ai-redis-chat-memory Controllers
+- `src/main/java/com/moh/yehia/chat/memory/RedisChatMemoryController.java` - Redis-backed chat
+
+### Data Objects
+- `src/main/java/com/moh/yehia/ollama/SongDTO.java` - Record for structured responses
+- `src/main/java/com/moh/yehia/chat/memory/ChatMemoryConfig.java` - Redis bean configuration
+
+### Prompt Templates
+- `src/main/resources/prompts/youtube-prompt.st` - Template with `{genre}` parameter
+- `src/main/resources/prompts/system-prompt.st` - System message template
+- `src/main/resources/prompts/song-text-prompt.st` - Plain text response format
+- `src/main/resources/prompts/song-structured-prompt.st` - Structured format with `{format}` placeholder
+
+### Configuration Files
+- `spring-ai-ollama/src/main/resources/application.yaml` - Ollama config, port 8083
+- `spring-ai-redis-chat-memory/src/main/resources/application.yaml` - Redis & Ollama config, port 8084
+
+### Build & Test
+- `spring-ai-ollama/pom.xml` - Maven configuration
+- `spring-ai-redis-chat-memory/pom.xml` - Maven configuration
+- `spring-ai-ollama/src/test/java/.../SpringAiOllamaApplicationTests.java` - Context load test only
+- `spring-ai-ollama/generated-http-requests.http` - HTTP client test file
 
 ## Common Pitfalls
-- **Ollama not running:** App starts but requests hang or fail. Check `localhost:11434/api/tags`
-- **Wrong model name:** Typos in `application.yaml` cause runtime errors, not compile errors
-- **Port conflicts:** Port 8083 must be available; change in `application.yaml` if needed
-- **Test execution:** Tests are minimal and don't validate AI responses—only context loading
-- **Prompt template not found:** Ensure `.st` files exist in `src/main/resources/prompts/` before building
-- **Variable interpolation failures:** Verify `Map.of()` keys match placeholders in template (e.g., `{genre}`, `{format}`)
-- **Output converter assertions failing:** Check that LLM response matches expected format before parsing
-- **Assertion errors in controllers:** Use `assert` statements for null checks; may need to be enabled in debugging
+
+### Ollama Issues
+| Problem                 | Verification                                                | Solution                                             |
+|-------------------------|-------------------------------------------------------------|------------------------------------------------------|
+| **Ollama not running**  | `curl http://localhost:11434/api/tags` → Connection refused | Start Ollama: `ollama serve`                         |
+| **Wrong model name**    | Typos in `application.yaml`                                 | Run `ollama list` to verify installed models         |
+| **Model not installed** | Model not in output of `ollama list`                        | Install: `ollama pull gemma4:e2b`                    |
+| **Silent failures**     | Requests fail but app started normally                      | Check logs with `DEBUG` level, verify Ollama running |
+| **Out of memory**       | First request or large models timeout                       | Use lighter model (llama3.2:3b), increase RAM        |
+
+### Redis Issues (spring-ai-redis-chat-memory only)
+| Problem                 | Verification                                | Solution                                                    |
+|-------------------------|---------------------------------------------|-------------------------------------------------------------|
+| **Redis not running**   | `redis-cli ping` → Connection refused       | Start Redis: `redis-server`                                 |
+| **Wrong Redis version** | `redis-cli INFO server` shows v6 or earlier | Upgrade to Redis 7.0+: `brew upgrade redis`                 |
+| **Memory full**         | Conversations disappear randomly            | Check `redis-cli INFO memory`, increase Redis max memory    |
+| **Network issues**      | Connection timeout errors                   | Verify `localhost:6379` is accessible, check firewall       |
+| **Keys not persisting** | Conversations lost after TTL                | Keys expire by design (24h default), check ChatMemoryConfig |
+
+### Port Conflicts
+| Port      | Service                     | Solution                                        |
+|-----------|-----------------------------|-------------------------------------------------|
+| **8083**  | spring-ai-ollama            | Change `server.port` in `application.yaml`      |
+| **8084**  | spring-ai-redis-chat-memory | Change `server.port` in `application.yaml`      |
+| **11434** | Ollama                      | Change Ollama port: `ollama serve --port 11435` |
+| **6379**  | Redis                       | Change Redis port: `redis-server --port 6380`   |
+
+### Code Issues & Solutions
+| Issue                                   | Root Cause                        | Solution                                                                    |
+|-----------------------------------------|-----------------------------------|-----------------------------------------------------------------------------|
+| **Prompt template not found**           | `.st` file missing from resources | Verify file exists in `src/main/resources/prompts/` before build            |
+| **Variable interpolation failures**     | Key mismatch in `Map.of()`        | Ensure keys match template placeholders exactly (e.g., `{genre}` ← `genre`) |
+| **Output converter assertion failures** | LLM response format unexpected    | Manually test endpoint without converter, inspect actual response           |
+| **Entity conversion fails (JSON)**      | DTO field mismatch                | Add `@JsonProperty` annotations or adjust DTO fields to match LLM output    |
+| **Streaming endpoint silent failure**   | Request timeout too short         | Set `spring.mvc.async.request-timeout: 30000` in `application.yaml`         |
+| **Metadata not propagating**            | Advisor not configured            | Ensure advisor is added: `.advisors(new SimpleLoggerAdvisor())`             |
+
+### Testing Issues
+| Issue                                | Cause                                | Resolution                                                              |
+|--------------------------------------|--------------------------------------|-------------------------------------------------------------------------|
+| **Tests are minimal**                | Only context loading tested          | Add integration tests with `@MockBean` for ChatClient                   |
+| **Assertion errors in controllers**  | `assert` statements disabled         | Enable assertions in IDE: Run → Edit Configurations → VM options: `-ea` |
+| **Memory tests fail**                | Repository state shared across tests | Use `@BeforeEach` to create new repository per test                     |
+| **Port already in use during tests** | Previous test didn't release port    | Use random ports: `@SpringBootTest(webEnvironment = RANDOM_PORT)`       |
 
