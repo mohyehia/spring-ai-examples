@@ -1,0 +1,22 @@
+spring:
+  application:
+    name: spring-ai-redis-chat-memory
+  ai:
+    ollama:
+      chat:
+        model: "llama3.2:3b"
+    chat:
+      memory:
+        redis:
+          host: localhost
+          port: 6379
+          index-name: spring-ai-chat-memory
+
+server:
+  port: 8084
+
+logging:
+  level:
+    root: info
+    org.springframework.ai: debug
+    org.springframework.ai.chat.client.advisor: debug

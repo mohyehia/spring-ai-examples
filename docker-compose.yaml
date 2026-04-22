@@ -1,0 +1,7 @@
+services:
+  redis:
+    container_name: redis-ctr
+    image: redis:8.4.2-alpine3.22
+    restart: unless-stopped
+    ports:
+      - '6379:6379'

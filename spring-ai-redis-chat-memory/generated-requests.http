@@ -1,0 +1,5 @@
+### GET request to Chat API
+GET localhost:8084/chat?question="Ok, now share with me the data you know already by now about me"
+
+### Get request to redis memory
+GET localhost:8084/memory/ahmed/chat?question="so you don't know my name or age ?"
