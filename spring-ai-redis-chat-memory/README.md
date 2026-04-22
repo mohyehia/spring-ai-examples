@@ -15,12 +15,16 @@ A Spring Boot 4.0.5 demonstration of **AI-powered chat with persistent memory us
 
 ## Overview
 
-This module showcases two distinct chat memory implementations:
+This module demonstrates **Redis-backed persistent chat memory** for multi-user conversational AI systems. Unlike simple in-memory implementations, Redis ensures conversations survive application restarts and scale across distributed instances.
 
-1. **In-Memory Chat** - Lightweight, session-scoped conversation tracking using Spring AI's built-in in-memory repository
-2. **Redis-Based Chat** - Persistent, distributed conversation management ideal for production multi-instance deployments
+**Key Use Cases:**
+- Multi-user chat applications with persistent history
+- Production deployments needing conversation durability
+- Microservices with shared conversation state
+- Stateless horizontally-scaled applications
+- Chat systems with conversation auditing requirements
 
-Perfect for building chatbots, conversational AI systems, and interactive applications that need to remember conversation context across requests.
+Perfect for building enterprise chatbots, customer support systems, and conversational AI that require persistent, distributed conversation management.
 
 ## Key Technologies
 
@@ -38,51 +42,60 @@ Perfect for building chatbots, conversational AI systems, and interactive applic
 ### Component Diagram
 
 ```
-┌──────────────────────────────────────────────────────┐
-│        Spring Boot Application (Port 8084)           │
-│                                                      │
-│  ┌─────────────────────┐  ┌──────────────────────┐  │
-│  │ ChatController      │  │ RedisChatMemory      │  │
-│  │ (/chat - in-memory) │  │ Controller           │  │
-│  │                     │  │ (/memory - Redis)    │  │
-│  └──────────┬──────────┘  └──────────┬───────────┘  │
-│             │                        │              │
-│  ┌──────────▼────────────────────────▼────────────┐ │
-│  │     Spring AI ChatClient                       │ │
-│  │  (Auto-configured by Spring AI BOM)           │ │
-│  │                                                │ │
-│  │  ┌─────────────────────────────────────────┐  │ │
-│  │  │ Advisors:                               │  │ │
-│  │  │ • PromptChatMemoryAdvisor               │  │ │
-│  │  │ • SimpleLoggerAdvisor                   │  │ │
-│  │  └─────────────────────────────────────────┘  │ │
-│  └──────────┬─────────────────────────┬──────────┘ │
-└─────────────┼─────────────────────────┼────────────┘
-              │                         │
-      ┌───────▼────────┐       ┌────────▼──────────┐
-      │  Ollama        │       │   Redis          │
-      │  localhost     │       │   localhost      │
-      │  :11434        │       │   :6379          │
-      │  (llama3.2:3b) │       │  (Persistence)   │
-      └────────────────┘       └──────────────────┘
+┌────────────────────────────────────────────────────────┐
+│        Spring Boot Application (Port 8084)             │
+│                                                        │
+│  ┌─────────────────────────────────────────────────┐   │
+│  │  RedisChatMemoryController                      │   │
+│  │  (/memory/{username}/chat)                      │   │
+│  │  (/memory/{username}/conversations)             │   │
+│  │  (/memory/conversations)                        │   │
+│  └─────────────────────────────────────────────────┘   │
+│                        │                               │
+│  ┌────────────────────▼─────────────────────────────┐  │
+│  │     Spring AI ChatClient                         │  │
+│  │  (Auto-configured by Spring AI BOM)              │  │
+│  │                                                  │  │
+│  │  Advisors:                                       │  │
+│  │  • PromptChatMemoryAdvisor (history context)     │  │
+│  │  • SimpleLoggerAdvisor (request/response logs)   │  │
+│  └────────────────────┬─────────────────────────────┘  │
+└───────────────────────┼────────────────────────────────┘
+                        │
+            ┌───────────┴──────────┐
+            │                      │
+      ┌─────▼────────┐       ┌─────▼──────────┐
+      │  Ollama      │       │  Redis         │
+      │  localhost   │       │  localhost     │
+      │  :11434      │       │  :6379         │
+      │ (llama3.2)   │       │ (Memory Store) │
+      └──────────────┘       └────────────────┘
 ```
 
 ### Data Flow
 
-**In-Memory Chat Flow:**
-1. Request: `GET /chat?question=Hello`
-2. ChatController creates InMemoryChatMemoryRepository
-3. PromptChatMemoryAdvisor maintains conversation context in-process
-4. ChatClient calls Ollama with context
-5. Response returned with conversation stored in-memory
-
-**Redis Chat Flow:**
-1. Request: `GET /memory?question=Hello`
-2. RedisChatMemoryController injects pre-configured RedisChatMemoryRepository
-3. PromptChatMemoryAdvisor retrieves prior messages from Redis
+**User-Scoped Chat Flow:**
+1. Request: `GET /memory/{username}/chat?question=What%20is%20Spring%20AI?`
+2. RedisChatMemoryController receives username and question
+3. PromptChatMemoryAdvisor queries Redis for previous messages with conversation ID = username
 4. ChatClient calls Ollama with full conversation context
-5. Response stored in Redis with 24-hour TTL
-6. Conversation accessible across application restarts
+5. Ollama generates response based on context
+6. Response and new message stored in Redis with 24-hour TTL
+7. Response returned to user
+8. Conversation accessible across requests and restarts
+
+**Conversation Retrieval Flow:**
+1. Request: `GET /memory/{username}/conversations`
+2. Controller queries RedisChatMemoryRepository.findByConversationId(username)
+3. Redis returns all Message objects for that conversation ID
+4. Messages converted to text and returned as JSON array
+5. Complete conversation history available for replay/audit
+
+**Conversation Discovery Flow:**
+1. Request: `GET /memory/conversations`
+2. Controller queries RedisChatMemoryRepository.findConversationIds()
+3. Redis returns all active conversation IDs
+4. Useful for monitoring all active users/conversations
 
 ## Quick Start
 
@@ -116,65 +129,135 @@ Application starts on **http://localhost:8084**
 ### Test Endpoints
 
 ```bash
-# In-memory chat (simple, session-scoped)
-curl "http://localhost:8084/chat?question=What%20is%20Spring%20AI?"
+# Chat as user 'alice' - first message
+curl "http://localhost:8084/memory/alice/chat?question=What%20is%20Spring%20AI?"
 
-# Redis-backed chat (persistent, distributed)
-curl "http://localhost:8084/memory?question=What%20is%20Spring%20AI?"
+# Chat as user 'alice' - second message (will have context from first)
+curl "http://localhost:8084/memory/alice/chat?question=Tell%20me%20more"
+
+# Chat as different user 'bob' - separate conversation
+curl "http://localhost:8084/memory/bob/chat?question=Hello%20there"
+
+# View alice's conversation history
+curl "http://localhost:8084/memory/alice/conversations"
+
+# View bob's conversation history
+curl "http://localhost:8084/memory/bob/conversations"
+
+# View all active conversation IDs
+curl "http://localhost:8084/memory/conversations"
 ```
 
 ## API Endpoints
 
-### 1. In-Memory Chat Endpoint
+### 1. Chat with User-Scoped Memory
 
 **Request:**
 ```http
-GET /chat?question=Tell me a joke
+GET /memory/{username}/chat?question=What%20is%20Spring%20AI?
 ```
 
-**Description:** Simple Q&A with in-process memory. Context is lost on application restart.
+**Example:**
+```bash
+curl "http://localhost:8084/memory/alice/chat?question=What%20is%20Spring%20AI?"
+curl "http://localhost:8084/memory/bob/chat?question=Tell%20me%20a%20joke"
+```
+
+**Description:** Multi-user conversation with persistent Redis-backed memory. Each user's conversation history is maintained separately using their username as the conversation ID.
 
 **Response:**
 ```
-Why did the programmer quit his job? Because he didn't get arrays. 😄
+Spring AI is a Spring Framework project that provides abstractions for 
+integrating with AI models like LLMs (Large Language Models). It offers a 
+unified API for working with various AI providers...
 ```
 
-**Implementation:**
-- Uses `InMemoryChatMemoryRepository`
-- Maintains conversation window in application memory
-- Advisors: `PromptChatMemoryAdvisor`, `SimpleLoggerAdvisor`
+**Key Features:**
+- ✅ **Per-user conversations** - Each username has isolated conversation history
+- ✅ **Persistent storage** - Conversations survive application restarts
+- ✅ **Context awareness** - LLM has access to conversation history
+- ✅ **Auto-configured** - Uses `RedisChatMemoryRepository` injected by Spring
+- ✅ **Advisors enabled** - `PromptChatMemoryAdvisor` + `SimpleLoggerAdvisor`
 
-### 2. Redis-Backed Chat Endpoint
+**Implementation Details:**
+- Endpoint: `GET /memory/{username}/chat`
+- Path Variable: `username` - User identifier (e.g., "alice", "bob", "user123")
+- Query Parameter: `question` - The user's question/input
+- Memory Type: Redis-backed with conversation ID = username
+- Return Type: Plain text response from Ollama
+
+### 2. View User Conversations
 
 **Request:**
 ```http
-GET /memory?question=What are your capabilities?
+GET /memory/{username}/conversations
 ```
 
-**Description:** Stateful Q&A with Redis persistence. Conversation history persists across requests and application restarts.
+**Example:**
+```bash
+curl "http://localhost:8084/memory/alice/conversations"
+```
+
+**Description:** Retrieve the complete conversation history for a specific user.
 
 **Response:**
-```
-I can help you with various tasks including answering questions, 
-providing explanations, code reviews, and creative writing...
+```json
+[
+  "What is Spring AI?",
+  "Spring AI is a Spring Framework project that provides abstractions...",
+  "Tell me more about LLMs",
+  "Large Language Models (LLMs) are neural networks trained on vast amounts of text...",
+  "How do I use Spring AI with Ollama?"
+]
 ```
 
-**Implementation:**
-- Uses `RedisChatMemoryRepository` (auto-configured in `ChatMemoryConfig`)
-- Stores conversation with 24-hour TTL
-- Retrieves prior messages for context-aware responses
-- Thread-safe, distributed conversation tracking
-- Advisors: `PromptChatMemoryAdvisor`, `SimpleLoggerAdvisor`
+**Key Features:**
+- ✅ **Full history** - All messages in the conversation thread
+- ✅ **Message order** - Chronological order of conversation
+- ✅ **Plain text** - Text content of each message
+- ✅ **No metadata** - Returns only message content
 
-**Configuration (ChatMemoryConfig):**
-```java
-RedisChatMemoryRepository.builder()
-    .jedisClient(jedisClient)           // Redis connection
-    .indexName("spring-ai-chat-memory") // Logical namespace
-    .keyPrefix("my-chat:")              // Redis key prefix
-    .timeToLive(Duration.ofHours(24))   // TTL for messages
-    .build()
+**Implementation Details:**
+- Endpoint: `GET /memory/{username}/conversations`
+- Path Variable: `username` - User identifier
+- Return Type: List<String> - Array of message texts
+- Retrieves from Redis using conversation ID
+
+### 3. View All Conversation IDs
+
+**Request:**
+```http
+GET /memory/conversations
 ```
+
+**Example:**
+```bash
+curl "http://localhost:8084/memory/conversations"
+```
+
+**Description:** List all active conversation IDs in the Redis memory store. Useful for monitoring, debugging, or administration.
+
+**Response:**
+```json
+[
+  "alice",
+  "bob",
+  "charlie",
+  "user123"
+]
+```
+
+**Key Features:**
+- ✅ **System overview** - See all active users/conversations
+- ✅ **No filtering** - Lists all conversation IDs
+- ✅ **Administrative use** - Monitor system activity
+- ✅ **Debugging support** - Verify conversations are stored
+
+**Implementation Details:**
+- Endpoint: `GET /memory/conversations`
+- No path variables or query parameters
+- Return Type: List<String> - All conversation IDs
+- Global view across all users
 
 ## Configuration
 
@@ -278,9 +361,8 @@ spring-ai-redis-chat-memory/
 │   ├── main/
 │   │   ├── java/com/moh/yehia/chat/memory/
 │   │   │   ├── SpringAiRedisChatMemoryApplication.java  # Entry point
-│   │   │   ├── ChatController.java                       # In-memory endpoint
-│   │   │   ├── RedisChatMemoryController.java           # Redis endpoint
-│   │   │   └── ChatMemoryConfig.java                    # Redis bean config
+│   │   │   ├── RedisChatMemoryController.java           # REST endpoints (/memory/*)
+│   │   │   └── ChatMemoryConfig.java                    # Redis bean configuration
 │   │   └── resources/
 │   │       └── application.yaml                         # Spring configuration
 │   └── test/
@@ -296,8 +378,7 @@ spring-ai-redis-chat-memory/
 | File                                      | Purpose                                                                           |
 |-------------------------------------------|-----------------------------------------------------------------------------------|
 | `SpringAiRedisChatMemoryApplication.java` | Spring Boot entry point with `@SpringBootApplication` and `@EnableCaching`        |
-| `ChatController.java`                     | REST endpoint for in-memory chat (`/chat`) using InMemoryChatMemoryRepository     |
-| `RedisChatMemoryController.java`          | REST endpoint for Redis chat (`/memory`) using RedisChatMemoryRepository          |
+| `RedisChatMemoryController.java`          | REST endpoints for user-scoped chat, conversation history, and conversation list  |
 | `ChatMemoryConfig.java`                   | Spring Configuration bean for RedisChatMemoryRepository with JedisPooled client   |
 | `application.yaml`                        | Configuration for Ollama model, Redis connection, server port, and logging levels |
 
@@ -331,62 +412,89 @@ Spring AI BOM (Bill of Materials) automatically manages version compatibility:
 
 ## Common Patterns
 
-### Pattern 1: Basic In-Memory Chat
+### Pattern 1: User-Scoped Chat with Redis Memory
 
 ```java
-@GetMapping("/chat")
-public String ask(@RequestParam String question) {
-    InMemoryChatMemoryRepository repo = new InMemoryChatMemoryRepository();
-    MessageWindowChatMemory memory = MessageWindowChatMemory.builder()
-            .chatMemoryRepository(repo)
-            .build();
-    
+@GetMapping("/{username}/chat")
+public String chat(@PathVariable String username, @RequestParam String question) {
     return chatClient.prompt()
             .user(question)
-            .advisors(PromptChatMemoryAdvisor.builder(memory).build())
+            .advisors(PromptChatMemoryAdvisor.builder(
+                MessageWindowChatMemory.builder()
+                    .chatMemoryRepository(redisChatMemoryRepository)
+                    .build()
+            ).build())
+            .advisors(advisorSpec -> advisorSpec.param(ChatMemory.CONVERSATION_ID, username))
             .call()
             .content();
 }
 ```
 
-### Pattern 2: Redis-Backed Persistent Chat
+**Key Points:**
+- `{username}` path variable isolates conversations per user
+- `ChatMemory.CONVERSATION_ID` parameter = username
+- `redisChatMemoryRepository` maintains persistent state
+- `PromptChatMemoryAdvisor` injects history into prompt
+- `SimpleLoggerAdvisor` logs all requests/responses
+
+### Pattern 2: Retrieve User Conversation History
 
 ```java
-@GetMapping("/memory")
-public String chat(@RequestParam String question) {
-    MessageWindowChatMemory memory = MessageWindowChatMemory.builder()
-            .chatMemoryRepository(redisChatMemoryRepository)  // Injected bean
-            .build();
-    
-    return chatClient.prompt()
-            .user(question)
-            .advisors(PromptChatMemoryAdvisor.builder(memory).build())
-            .call()
-            .content();
+@GetMapping("/{username}/conversations")
+public List<String> viewConversations(@PathVariable String username) {
+    return redisChatMemoryRepository.findByConversationId(username)
+            .stream().map(Message::getText).toList();
 }
 ```
 
-### Pattern 3: Custom Redis Configuration
+**Key Points:**
+- Queries Redis by conversation ID (username)
+- Returns all `Message` objects for that conversation
+- Maps to text content for clean response
+- Useful for UI display, debugging, auditing
+
+### Pattern 3: List All Active Conversations
+
+```java
+@GetMapping("/conversations")
+public List<String> viewConversationIDs() {
+    return redisChatMemoryRepository.findConversationIds();
+}
+```
+
+**Key Points:**
+- Global view of all conversations
+- Returns list of conversation IDs
+- No filtering or parameters
+- Useful for monitoring and administration
+
+### Pattern 4: Custom Redis Configuration
 
 ```java
 @Configuration
 public class ChatMemoryConfig {
     @Bean
     public RedisChatMemoryRepository redisChatMemoryRepository(
-            @Value("${spring.ai.chat.memory.redis.host}") String host,
-            @Value("${spring.ai.chat.memory.redis.port}") int port) {
+            @Value("${spring.ai.chat.memory.redis.host:localhost}") String host,
+            @Value("${spring.ai.chat.memory.redis.port:6379}") int port) {
         
         JedisPooled jedis = new JedisPooled(host, port);
         
         return RedisChatMemoryRepository.builder()
                 .jedisClient(jedis)
-                .indexName("my-chat-index")
-                .keyPrefix("chat:")
+                .indexName("spring-ai-chat-memory")
+                .keyPrefix("memory:")
                 .timeToLive(Duration.ofHours(24))
                 .build();
     }
 }
 ```
+
+**Configuration Options:**
+- `indexName` - Logical namespace for Redis storage
+- `keyPrefix` - Prefix for all Redis keys (e.g., "memory:" → "memory:alice")
+- `timeToLive` - Auto-expiration duration for conversations (24 hours by default)
+- `jedisClient` - Redis connection pool
 
 ## Troubleshooting
 
@@ -394,10 +502,32 @@ public class ChatMemoryConfig {
 |---------------------------------------|----------------------------------------------------------------------------------------------------|
 | **Port 8084 already in use**          | Change `server.port` in application.yaml or use `-Dspring-boot.run.arguments="--server.port=9084"` |
 | **Ollama connection failed**          | Verify Ollama runs on localhost:11434 with `curl http://localhost:11434/api/tags`                  |
-| **Redis connection refused**          | Ensure Redis is running on localhost:6379; adjust `spring.ai.chat.memory.redis.host/port`          |
+| **Redis connection refused**          | Ensure Redis 7.0+ is running on localhost:6379; adjust `spring.ai.chat.memory.redis` config        |
+| **Redis version too old**             | Upgrade to Redis 7.0+: `brew upgrade redis` or update your Redis installation                      |
 | **Model not found**                   | Run `ollama pull llama3.2:3b` before starting application                                          |
-| **Conversation not persisting**       | Check Redis TTL and key prefixes in `ChatMemoryConfig`; verify Redis connectivity                  |
+| **Conversations not persisting**      | Check Redis is running and accessible; verify TTL in `ChatMemoryConfig`                            |
+| **No conversation history retrieved** | Ensure username path variable matches conversation ID; verify Redis keys exist                     |
 | **Build fails: dependency not found** | Update Spring AI version in pom.xml or clear Maven cache: `mvn clean`                              |
+
+### Endpoint Testing
+
+```bash
+# Test basic chat
+curl "http://localhost:8084/memory/test-user/chat?question=hello"
+
+# Test conversation retrieval  
+curl "http://localhost:8084/memory/test-user/conversations"
+
+# Test get all conversation IDs
+curl "http://localhost:8084/memory/conversations"
+
+# Verify Redis connection
+redis-cli ping                          # Should return: PONG
+
+# Check Redis keys for chat data
+redis-cli KEYS "memory:*"              # Lists all memory keys
+redis-cli TTL "memory:test-user:*"     # Check TTL for messages
+```
 
 ## Performance Considerations
 
@@ -410,11 +540,16 @@ Choose based on your requirements:
 
 ## Extension Points
 
-1. **Change LLM Model**: Update `spring.ai.ollama.chat.model` in `application.yaml`
-2. **Modify Redis TTL**: Adjust `Duration.ofHours(24)` in `ChatMemoryConfig`
-3. **Add New Endpoints**: Create methods in controller with different memory strategies
-4. **Custom Memory Window**: Adjust `MessageWindowChatMemory` builder configuration
-5. **Add Request Logging**: Extend `SimpleLoggerAdvisor` or create custom advisor
+1. **Add conversation search** - Search conversations by content or date range
+2. **Add conversation export** - Save conversations to database or file
+3. **Add user profiles** - Store user metadata alongside conversations
+4. **Add analytics endpoints** - Track conversation metrics, token usage, response times
+5. **Add conversation cleanup** - Implement scheduled TTL or manual deletion
+6. **Add multimodal support** - Extend to support image analysis (use spring-ai-ollama patterns)
+7. **Add conversation tagging** - Tag conversations for organization and filtering
+8. **Add conversation merging** - Combine multiple conversation threads
+9. **Add rate limiting** - Prevent abuse with per-user request limits
+10. **Add webhooks** - Notify external systems when conversations end or hit milestones
 
 ## References
 
