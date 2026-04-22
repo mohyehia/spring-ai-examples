@@ -6,7 +6,10 @@ import org.springframework.ai.chat.client.advisor.SimpleLoggerAdvisor;
 import org.springframework.ai.chat.memory.ChatMemory;
 import org.springframework.ai.chat.memory.MessageWindowChatMemory;
 import org.springframework.ai.chat.memory.repository.redis.RedisChatMemoryRepository;
+import org.springframework.ai.chat.messages.Message;
 import org.springframework.web.bind.annotation.*;
+
+import java.util.List;
 
 @RestController
 @RequestMapping("/memory")
@@ -31,5 +34,16 @@ public class RedisChatMemoryController {
                 .advisors(advisorSpec -> advisorSpec.param(ChatMemory.CONVERSATION_ID, username))
                 .call()
                 .content();
+    }
+
+    @GetMapping("/{username}/conversations")
+    public List<String> viewConversations(@PathVariable String username) {
+        return redisChatMemoryRepository.findByConversationId(username)
+                .stream().map(Message::getText).toList();
+    }
+
+    @GetMapping("/conversations")
+    public List<String> viewConversationIDs() {
+        return redisChatMemoryRepository.findConversationIds();
     }
 }
