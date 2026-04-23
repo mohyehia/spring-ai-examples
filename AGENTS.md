@@ -15,16 +15,18 @@
 
 ## Project Overview
 
-This is a **Spring Boot 4.0.5 repository** demonstrating **Spring AI integration patterns** with two distinct modules:
+This is a **Spring Boot 4.0.5 repository** demonstrating **Spring AI integration patterns** with three distinct modules:
 
-1. **`spring-ai-ollama`** (Port 8083) - Core AI patterns with Ollama LLM
-2. **`spring-ai-redis-chat-memory`** (Port 8084) - Persistent chat memory with Redis
+1. **`spring-ai-ollama`** (Port 8083) - Core AI patterns with Ollama LLM (6 controllers, 22+ endpoints)
+2. **`spring-ai-redis-chat-memory`** (Port 8084) - Persistent chat memory with Redis (1 controller, 1 endpoint)
+3. **`spring-ai-jdbc-chat-memory`** (Port 8085) - Persistent chat memory with PostgreSQL JDBC (1 controller, 3 endpoints)
 
 **Key Technologies:**
 - Spring Boot 4.0.5 (Java 21)
 - Spring AI 2.0.0-M4 (specifically `spring-ai-starter-model-ollama`)
 - Ollama chat models: `gemma4:e2b` (multimodal, recommended), `llama3.2:3b` (lightweight)
-- Redis 7.0+ (for persistent memory in redis-chat-memory module)
+- Redis 7.0+ (for redis-chat-memory module, optional)
+- PostgreSQL 12+ (for jdbc-chat-memory module, optional)
 - Maven for build management
 
 ## Architecture & Data Flow
@@ -32,30 +34,27 @@ This is a **Spring Boot 4.0.5 repository** demonstrating **Spring AI integration
 ### Multi-Module Architecture
 
 ```
-┌─────────────────────────────────────────────────────────────┐
-│           Spring Boot 4.0.5 REST Applications               │
-│                                                             │
-│  ┌─────────────────────────────┐  ┌──────────────────────┐  │
-│  │  spring-ai-ollama           │  │ spring-ai-redis      │  │
-│  │  Port 8083                  │  │ -chat-memory         │  │
-│  │                             │  │ Port 8084            │  │
-│  │  ┌──────────────────────┐   │  │                      │  │
-│  │  │ ChatController       │   │  │ ┌──────────────────┐ │  │
-│  │  │ PromptController     │   │  │ │ RedisChatMemory  │ │  │
-│  │  │ OutputParserCtrlr    │   │  │ │ Controller       │ │  │
-│  │  │ MetadataController   │   │  │ │                  │ │  │
-│  │  │ ChatMemoryController │   │  │ │ • InMemory       │ │  │
-│  │  │ MultiModalController │   │  │ │ • Redis-backed   │ │  │
-│  │  └──────────────────────┘   │  │ └──────────────────┘ │  │
-│  │                             │  │                      │  │
-│  └────────────┬────────────────┘  └───────┬──────────────┘  │
-└───────────────┼───────────────────────────┼─────────────────┘
-                │                           │
-        ┌───────▼─────────┐          ┌──────▼──────────┐
-        │ Ollama          │          │ Redis           │
-        │ localhost:11434 │          │ localhost:6379  │
-        │ (gemma4:e2b)    │          │ (v7.0+)         │
-        └─────────────────┘          └─────────────────┘
+┌──────────────────────────────────────────────────────────────────────────┐
+│                    Spring Boot 4.0.5 REST Applications                   │
+│                                                                          │
+│  ┌────────────────────────┐  ┌─────────────────┐  ┌─────────────────┐    │
+│  │ spring-ai-ollama       │  │ spring-ai-redis │  │ spring-ai-jdbc  │    │
+│  │ Port 8083              │  │ -chat-memory    │  │ -chat-memory    │    │
+│  │                        │  │ Port 8084       │  │ Port 8085       │    │
+│  │ • ChatController       │  │                 │  │                 │    │
+│  │ • PromptController     │  │ RedisChatMemory │  │ ChatMemoryCtrlr │    │
+│  │ • OutputParserCtrlr    │  │ Controller      │  │ (3 endpoints)   │    │
+│  │ • MetadataController   │  │ (1 endpoint)    │  │ • /{username}   │    │
+│  │ • ChatMemoryController │  │ • /memory       │  │ • /{u}/conv     │    │
+│  │ • MultiModalController │  │                 │  │ • /conversations│    │
+│  └────────────┬───────────┘  └───────┬─────────┘  └────────┬────────┘    │
+└───────────────┼──────────────────────┼─────────────────────┼─────────────┘
+                │                      │                     │
+        ┌───────▼─────────┐   ┌────────▼────────┐   ┌────────▼─────────┐
+        │ Ollama          │   │ Redis           │   │ PostgreSQL       │
+        │ localhost:11434 │   │ localhost:6379  │   │ localhost:5432   │
+        │ (gemma4:e2b)    │   │ (v7.0+)         │   │ (v12+)           │
+        └─────────────────┘   └─────────────────┘   └──────────────────┘
 ```
 
 ### Module Breakdown
@@ -68,8 +67,14 @@ This is a **Spring Boot 4.0.5 repository** demonstrating **Spring AI integration
 - ChatMemoryController - In-memory conversation management
 - MultiModalController - Image analysis with multimodal models
 
-**spring-ai-redis-chat-memory** (1 Controller):
-- RedisChatMemoryController - Redis-backed persistent chat
+**spring-ai-redis-chat-memory** (1 Controller, 1 Endpoint):
+- RedisChatMemoryController - Redis-backed persistent chat (TTL: 24h)
+
+**spring-ai-jdbc-chat-memory** (1 Controller, 3 Endpoints):
+- ChatMemoryController - JDBC-backed persistent chat with PostgreSQL
+  - `GET /{username}` - Chat with memory
+  - `GET /{username}/conversations` - View conversation history
+  - `GET /conversations` - List all conversation IDs
 
 ### Critical Integration Points
 
@@ -95,6 +100,16 @@ This is a **Spring Boot 4.0.5 repository** demonstrating **Spring AI integration
 - **Memory repository:** RedisChatMemoryRepository (auto-configured)
 - **Server port:** 8084
 - **Default model:** `llama3.2:3b` (lightweight text processing)
+- **TTL:** 24 hours configurable
+
+**spring-ai-jdbc-chat-memory:**
+- **PostgreSQL endpoint:** `localhost:5432` (PostgreSQL default)
+- **PostgreSQL version:** 12+ required
+- **Memory repository:** JdbcChatMemoryRepository (auto-configured)
+- **Server port:** 8085
+- **Default model:** `llama3.2:3b` (lightweight text processing)
+- **Schema:** Auto-created on startup via `initialize-schema: embedded`
+- **Storage:** Permanent with full SQL capabilities
 
 ## Developer Workflows
 
@@ -144,7 +159,12 @@ mvn spring-boot:run
 - `GET /multi-modal` → Image analysis (PNG)
 
 **spring-ai-redis-chat-memory endpoints:**
-- `GET /memory?question=...` → Redis-backed persistent chat
+- `GET /memory?question=...` → Redis-backed persistent chat (TTL 24h)
+
+**spring-ai-jdbc-chat-memory endpoints:**
+- `GET /{username}?question=...` → JDBC-backed chat with PostgreSQL persistence
+- `GET /{username}/conversations` → View conversation history for user
+- `GET /conversations` → List all conversation IDs (usernames)
 
 **HTTP Client:** `generated-http-requests.http` in each module
 
@@ -256,15 +276,15 @@ Three converter types available:
 
 **Modern Patterns (V1.1+):**
 
-4. **Native `.entity()` method** → `T`
+1. **Native `.entity()` method** → `T`
    - Use: Direct type conversion without manual converters
    - Cleaner syntax: `chatClient.prompt(prompt).call().entity(typeRef)`
 
-5. **`.responseEntity()` method** → `ResponseEntity<ChatResponse, T>`
+2. **`.responseEntity()` method** → `ResponseEntity<ChatResponse, T>`
    - Use: Get both metadata and parsed data
    - Access token counts: `response.chatResponse().getMetadata()`
 
-6. **`.stream()` method** → `Flux<String>`
+3. **`.stream()` method** → `Flux<String>`
    - Use: Server-Sent Events (SSE) streaming
    - Non-blocking, token-by-token output
    - Best for: Long-form content, real-time UI updates
@@ -314,10 +334,23 @@ chatClient.prompt()
     .content();
 ```
 
+**Pattern 4: JDBC-Backed Persistent Chat (JdbcChatMemoryController)**
+```java
+MessageWindowChatMemory memory = MessageWindowChatMemory.builder()
+    .chatMemoryRepository(jdbcChatMemoryRepository)  // Auto-configured, PostgreSQL-backed
+    .build();
+chatClient.prompt()
+    .user(question)
+    .advisors(PromptChatMemoryAdvisor.builder(memory).build())
+    .advisors(spec -> spec.param(ChatMemory.CONVERSATION_ID, username))  // Per-user isolation
+    .call()
+    .content();
+```
+
 **Key Differences:**
-- **In-Memory:** Lost on app restart, single-instance only
-- **Redis:** Persists across restarts, distributed across instances
-- **Per-User:** Conversation isolation with conversation IDs
+- **In-Memory:** Lost on app restart, single-instance only, fastest
+- **Redis:** TTL-based (24h default), multi-instance, high performance, optional
+- **JDBC:** Permanent storage, full SQL queries, ACID transactions, enterprise-grade, optional
 
 ### Metadata & Advisor Patterns (V1.2)
 
@@ -424,6 +457,18 @@ chatClient.prompt()
 4. **Add analytics:** Track conversation metrics
 5. **Add multimodal:** Use same patterns from spring-ai-ollama MultiModalController
 
+### spring-ai-jdbc-chat-memory
+1. **Add conversation search:** Full-text search with PostgreSQL
+2. **Add conversation export:** Generate PDF/CSV reports from database
+3. **Add conversation analytics:** Create dashboards with conversation statistics
+4. **Add user authentication:** Store user IDs instead of usernames
+5. **Add conversation tagging:** Add tag column to database
+6. **Add sentiment analysis:** Analyze conversation sentiment with PostgreSQL UDFs
+7. **Add rate limiting:** Query-based rate limiting per user
+8. **Add conversation archival:** Move old conversations to archive table
+9. **Add custom indexes:** Optimize query performance for large datasets
+10. **Add data retention policies:** Automatic cleanup of old conversations
+
 ## Module Selection Guide
 
 ### When to Use spring-ai-ollama
@@ -436,16 +481,29 @@ chatClient.prompt()
 
 ### When to Use spring-ai-redis-chat-memory
 - **Multi-user chat applications** - Distributed conversation management
-- **Production deployments** - Persistent storage with TTL
+- **Production deployments** - Persistent storage with configurable TTL (24h default)
 - **Microservices architecture** - Shared memory across instances
 - **Long-lived conversations** - Conversations survive app restarts
-- **Conversation history required** - Full message audit trail
+- **High performance needed** - In-memory data store for speed
 - **Horizontal scaling** - Stateless application design
+- **Simple persistence** - No complex queries needed
+
+### When to Use spring-ai-jdbc-chat-memory
+- **Enterprise applications** - Full relational database power
+- **Complex queries required** - Full SQL for analytics and reporting
+- **Permanent storage** - No TTL, conversations stored indefinitely
+- **ACID transactions** - Guaranteed data consistency
+- **Multi-user with auditing** - Complete conversation audit trail
+- **Advanced analytics** - Dashboards and reporting from conversation data
+- **Large-scale deployments** - Unlimited storage with disk-bound scaling
+- **Compliance requirements** - Full data control and retention policies
 
 ### Combined Usage Pattern
 **Recommended for Production:**
-1. Start with spring-ai-ollama patterns for core AI logic
-2. Add spring-ai-redis-chat-memory for persistent state
+1. Use spring-ai-ollama for core AI logic (all modules depend on this)
+2. Choose memory backend based on requirements:
+   - Fast, distributed, TTL-based → spring-ai-redis-chat-memory
+   - Enterprise, permanent, SQL queries → spring-ai-jdbc-chat-memory
 3. Extend with custom converters and advisors from spring-ai-ollama
 4. Deploy as microservice with load balancing
 
@@ -482,7 +540,10 @@ chatClient.prompt()
 - `src/main/java/com/moh/yehia/ollama/MultiModalController.java` - Image analysis
 
 ### spring-ai-redis-chat-memory Controllers
-- `src/main/java/com/moh/yehia/chat/memory/RedisChatMemoryController.java` - Redis-backed chat
+- `src/main/java/com/moh/yehia/chat/memory/RedisChatMemoryController.java` - Redis-backed chat (1 endpoint)
+
+### spring-ai-jdbc-chat-memory Controllers
+- `src/main/java/com/moh/yehia/chat/memory/ChatMemoryController.java` - JDBC-backed chat (3 endpoints)
 
 ### Data Objects
 - `src/main/java/com/moh/yehia/ollama/SongDTO.java` - Record for structured responses
@@ -497,10 +558,12 @@ chatClient.prompt()
 ### Configuration Files
 - `spring-ai-ollama/src/main/resources/application.yaml` - Ollama config, port 8083
 - `spring-ai-redis-chat-memory/src/main/resources/application.yaml` - Redis & Ollama config, port 8084
+- `spring-ai-jdbc-chat-memory/src/main/resources/application.yaml` - PostgreSQL & Ollama config, port 8085
 
 ### Build & Test
 - `spring-ai-ollama/pom.xml` - Maven configuration
 - `spring-ai-redis-chat-memory/pom.xml` - Maven configuration
+- `spring-ai-jdbc-chat-memory/pom.xml` - Maven configuration
 - `spring-ai-ollama/src/test/java/.../SpringAiOllamaApplicationTests.java` - Context load test only
 - `spring-ai-ollama/generated-http-requests.http` - HTTP client test file
 

@@ -1,0 +1,8 @@
+### Simple API
+GET localhost:8085/moh?question="Review the blog post and if there are any modifications need to be added, then add them?"
+
+### GET conversationIds
+GET localhost:8085/conversations
+
+### GET conversations for username
+GET localhost:8085/moh/conversations

@@ -1,0 +1,26 @@
+spring:
+  application:
+    name: spring-ai-jdbc-chat-memory
+  ai:
+    ollama:
+      chat:
+        model: "llama3.2:3b"
+    chat:
+      memory:
+        repository:
+          jdbc:
+            initialize-schema: embedded
+
+  datasource:
+    url: jdbc:postgresql://localhost:5432/chat-memory
+    username: user
+    password: password
+
+server:
+  port: 8085
+
+logging:
+  level:
+    root: info
+    org.springframework.ai: debug
+    org.springframework.ai.chat.client.advisor: debug
