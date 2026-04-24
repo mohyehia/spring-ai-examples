@@ -1,0 +1,6 @@
+### Simple API
+GET localhost:8086/?question="do you know any info about me? my customer number is 123"
+
+
+### API with custom data
+GET localhost:8086/123
