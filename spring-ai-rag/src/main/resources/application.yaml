@@ -1,0 +1,20 @@
+spring:
+  application:
+    name: spring-ai-rag
+  ai:
+    ollama:
+      chat:
+        model: "llama3.2:3b"
+      embedding:
+        model: "embeddinggemma:latest"
+        options:
+          dimensions: 1024
+
+server:
+  port: 8087
+
+logging:
+  level:
+    root: info
+    org.springframework.ai: debug
+    org.springframework.ai.chat.client.advisor: debug

@@ -1,0 +1,35 @@
+### Simple API
+GET localhost:8087
+Content-Type: application/x-www-form-urlencoded
+
+question = "what are possible vector store implementations at Spring AI"
+
+### embedding API
+GET localhost:8087/embedding
+
+### Load data
+GET localhost:8087/load
+
+
+### Vector Search API
+GET localhost:8087/vector-search
+Content-Type: application/x-www-form-urlencoded
+
+question="what are possible vector store implementations at Spring AI"
+
+
+### Spring Reference RAG API
+GET localhost:8087/spring
+Content-Type: application/x-www-form-urlencoded
+
+question="what are the Building Blocks of a Model‐Driven Design?"
+
+
+### vector search reference
+GET localhost:8087/spring/vector-search
+Content-Type: application/x-www-form-urlencoded
+
+question="what are the Building Blocks of a Model‐Driven Design"
+
+### enrich documents
+GET localhost:8087/spring/enrich

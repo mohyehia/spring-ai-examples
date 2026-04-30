@@ -1,0 +1,10 @@
+Spring AI is a Spring project that provides an abstraction over AI models like Ollama, allowing you to build AI-powered applications with Spring Boot.
+Spring AI integrates with Ollama for local LLM orchestration, providing a chat client for interacting with language models.
+Vector stores are used in Retrieval Augmented Generation (RAG) patterns to store and retrieve document embeddings for semantic search.
+SimpleVectorStore is an in-memory vector store implementation suitable for development and testing purposes.
+The QuestionAnswerAdvisor uses a vector store to retrieve relevant documents based on similarity search before passing them to the LLM.
+Embeddings are numerical representations of text that capture semantic meaning, allowing for similarity-based retrieval.
+RAG (Retrieval Augmented Generation) combines document retrieval with generative AI to provide accurate, context-aware responses.
+Spring AI supports multiple vector store implementations including PgVectorStore for PostgreSQL, Pinecone, Weaviate, and others.
+The ChatClient in Spring AI provides a fluent API for interacting with LLMs with support for advisors, tools, and streaming responses.
+Ollama is a local LLM framework that allows you to run language models like Llama, Gemma, and others on your machine without cloud dependencies.
