@@ -1,0 +1,6 @@
+### Simple API
+GET localhost:8090/?message="Tell me a joke about Computers"
+
+### actuator metrics
+GET localhost:8090/actuator/metrics
+

@@ -1,0 +1,30 @@
+spring:
+  application:
+    name: spring-ai-observability
+  ai:
+    ollama:
+      chat:
+        model: "llama3.2:3b"
+    chat:
+      client:
+        observations:
+          log-prompt: true
+          log-completion: true
+    tools:
+      observations:
+        include-content: false
+
+server:
+  port: 8090
+
+logging:
+  level:
+    root: info
+    org.springframework.ai: debug
+    org.springframework.ai.chat.client.advisor: debug
+
+management:
+  endpoints:
+    web:
+      exposure:
+        include: health, info, metrics
