@@ -1,0 +1,9 @@
+### Simple RAG API
+GET localhost:8089
+
+
+### evaluate
+GET localhost:8089/evaluate?question="does spring AI supports Structured Outputs?"
+
+### fact-check API
+GET localhost:8089/fact-check?claim="The Earth is the third planet from the Sun"
