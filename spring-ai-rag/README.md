@@ -348,7 +348,6 @@ public void addDocuments(String content) {
 ## References
 
 - [Spring AI Documentation](https://spring.io/projects/spring-ai)
-- [Spring AI RAG Pattern](https://docs.spring.io/spring-ai/reference/api/chatclient.html#_retrieval_augmented_generation_rag)
+- [Spring AI RAG Pattern](https://docs.spring.io/spring-ai/reference/api/retrieval-augmented-generation.html)
 - [Spring AI Vector Stores](https://docs.spring.io/spring-ai/reference/api/vectordbs.html)
-- [SimpleVectorStore JavaDoc](https://docs.spring.io/spring-ai/api/org/springframework/ai/vectorstore/SimpleVectorStore.html)
 - [Ollama GitHub](https://github.com/ollama/ollama)

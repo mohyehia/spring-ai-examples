@@ -1,0 +1,13 @@
+package com.moh.yehia.rag;
+
+import org.springframework.boot.SpringApplication;
+import org.springframework.boot.autoconfigure.SpringBootApplication;
+
+@SpringBootApplication
+public class SpringAiRagPgvectorApplication {
+
+    public static void main(String[] args) {
+        SpringApplication.run(SpringAiRagPgvectorApplication.class, args);
+    }
+
+}

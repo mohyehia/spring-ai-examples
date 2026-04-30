@@ -1,0 +1,25 @@
+spring:
+  application:
+    name: spring-ai-rag-pgvector
+  ai:
+    ollama:
+      embedding:
+        model: "embeddinggemma:latest"
+    vectorstore:
+      pgvector:
+        index-type: hnsw
+        distance-type: cosine-distance
+        max-document-batch-size: 1000
+        initialize-schema: true
+  datasource:
+    url: jdbc:postgresql://localhost:5432/mydatabase
+    username: myuser
+    password: secret
+server:
+  port: 8088
+
+logging:
+  level:
+    root: info
+    org.springframework.ai: debug
+    org.springframework.ai.chat.client.advisor: debug
