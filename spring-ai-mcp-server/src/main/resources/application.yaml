@@ -1,0 +1,13 @@
+spring:
+  application:
+    name: spring-ai-mcp-server
+
+  ai:
+    mcp:
+      server:
+        protocol: streamable
+        base-url: /mcp
+        type: sync
+
+server:
+  port: 8092
